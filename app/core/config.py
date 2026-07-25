@@ -36,6 +36,9 @@ class Settings(BaseSettings):
         if not normalized:
             raise ValueError("MongoDB database name cannot be empty")
 
+        if len(normalized) > 63:
+            raise ValueError("MongoDB database name cannot exceed 63 characters")
+
         forbidden_characters = set('/\\."$*<>:|? ')
         if any(character in forbidden_characters for character in normalized):
             raise ValueError("MongoDB database name contains an unsafe character")

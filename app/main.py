@@ -11,6 +11,7 @@ from app.api.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
 from app.db.client import MongoDatabase
+from app.repositories.ingestion import IngestionRepository
 
 logger = structlog.get_logger(__name__)
 
@@ -25,6 +26,7 @@ def build_lifespan(settings: Settings):
             database_name=settings.mongodb_database,
         )
         app.state.mongodb = mongodb
+        app.state.ingestion_repository = IngestionRepository(mongodb.database)
 
         logger.info(
             "application_started",
