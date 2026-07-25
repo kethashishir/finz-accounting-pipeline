@@ -1,0 +1,51 @@
+# macOS and editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Test and quality output
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+tokens/
+
+# Application runtime files
+logs/
+uploads/*
+!uploads/.gitkeep
+data/raw/*
+!data/raw/.gitkeep
+
+# Supplied or exported financial source files
+*.xlsx
+*.xls
+*.csv
+!tests/fixtures/*.csv
+!sample_config/*.csv
+
+# Local databases and temporary files
+*.db
+*.sqlite
+*.sqlite3
+tmp/

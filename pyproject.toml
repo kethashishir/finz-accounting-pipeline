@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "finz-accounting-pipeline"
+version = "0.1.0"
+description = "Accounting data ingestion, classification, QuickBooks sync, and P&L reconciliation"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "cryptography>=44.0.0",
+    "fastapi>=0.115.0",
+    "google-genai>=1.0.0",
+    "httpx>=0.28.0",
+    "jinja2>=3.1.0",
+    "openpyxl>=3.1.0",
+    "pandas>=2.2.0",
+    "pydantic-settings>=2.7.0",
+    "pymongo>=4.11.0",
+    "python-multipart>=0.0.20",
+    "structlog>=24.4.0",
+    "tenacity>=9.0.0",
+    "uvicorn[standard]>=0.32.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.14.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.0",
+    "ruff>=0.9.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["data*", "docs*", "scripts*", "tests*", "uploads*", "sample_config*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
