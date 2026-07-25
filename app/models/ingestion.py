@@ -19,6 +19,16 @@ from pydantic import (
 
 CENT = Decimal("0.01")
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
+SUPPORTED_DATE_FORMATS = frozenset(
+    {
+        "%Y-%m-%d",
+        "%m/%d/%Y",
+        "%m/%d/%y",
+        "%d/%m/%Y",
+        "%Y/%m/%d",
+        "%m-%d-%Y",
+    }
+)
 
 
 def utc_now() -> datetime:
@@ -102,9 +112,7 @@ class ColumnMapping(BaseModel):
         """Require either one signed amount or split debit/credit columns."""
 
         has_signed_amount = self.amount is not None
-        has_split_amount = (
-            self.debit_amount is not None or self.credit_amount is not None
-        )
+        has_split_amount = self.debit_amount is not None or self.credit_amount is not None
 
         if has_signed_amount == has_split_amount:
             raise ValueError(
@@ -121,10 +129,23 @@ class IngestionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     file_type: FileType
+    header_row: int = Field(default=1, ge=1)
     sheet_name: str | None = Field(default=None, min_length=1)
+    date_format: str = "%Y-%m-%d"
     column_mapping: ColumnMapping
     default_currency: str | None = None
     default_bank_account: str | None = None
+
+    @field_validator("date_format")
+    @classmethod
+    def validate_date_format(cls, value: str) -> str:
+        """Allow explicit date formats instead of ambiguous guessing."""
+
+        if value not in SUPPORTED_DATE_FORMATS:
+            supported = ", ".join(sorted(SUPPORTED_DATE_FORMATS))
+            raise ValueError(f"Unsupported date format; choose one of: {supported}")
+
+        return value
 
     @field_validator("default_currency")
     @classmethod
@@ -159,17 +180,10 @@ class IngestionConfig(BaseModel):
         """Require mapped or configured currency and bank-account values."""
 
         if self.column_mapping.currency is None and self.default_currency is None:
-            raise ValueError(
-                "Currency must come from a mapped column or a default value"
-            )
+            raise ValueError("Currency must come from a mapped column or a default value")
 
-        if (
-            self.column_mapping.bank_account is None
-            and self.default_bank_account is None
-        ):
-            raise ValueError(
-                "Bank account must come from a mapped column or a default value"
-            )
+        if self.column_mapping.bank_account is None and self.default_bank_account is None:
+            raise ValueError("Bank account must come from a mapped column or a default value")
 
         if self.file_type == FileType.CSV and self.sheet_name is not None:
             raise ValueError("CSV files cannot specify a worksheet")
@@ -250,14 +264,10 @@ class NormalizedTransaction(BaseModel):
             return None
 
         if isinstance(value, float):
-            raise ValueError(
-                "Binary floating-point values are not accepted for money"
-            )
+            raise ValueError("Binary floating-point values are not accepted for money")
 
         try:
-            decimal_value = (
-                value if isinstance(value, Decimal) else Decimal(str(value))
-            )
+            decimal_value = value if isinstance(value, Decimal) else Decimal(str(value))
         except (InvalidOperation, ValueError) as exc:
             raise ValueError("Amount is not a valid decimal value") from exc
 
@@ -304,9 +314,7 @@ class NormalizedTransaction(BaseModel):
         """Enforce state-specific safety and duplicate requirements."""
 
         error_issues = [
-            issue
-            for issue in self.validation_issues
-            if issue.severity == IssueSeverity.ERROR
+            issue for issue in self.validation_issues if issue.severity == IssueSeverity.ERROR
         ]
 
         if self.amount is not None and self.amount != Decimal("0.00"):
@@ -315,10 +323,7 @@ class NormalizedTransaction(BaseModel):
                 if self.amount > Decimal("0.00")
                 else TransactionDirection.OUTFLOW
             )
-            if (
-                self.direction is not None
-                and self.direction != expected_direction
-            ):
+            if self.direction is not None and self.direction != expected_direction:
                 raise ValueError("Transaction direction conflicts with amount sign")
 
         if self.status in {RecordStatus.VALID, RecordStatus.DUPLICATE}:
@@ -331,40 +336,26 @@ class NormalizedTransaction(BaseModel):
                 "direction": self.direction,
                 "fingerprint": self.fingerprint,
             }
-            missing_fields = [
-                name for name, value in required_values.items() if value is None
-            ]
+            missing_fields = [name for name, value in required_values.items() if value is None]
 
             if missing_fields:
                 raise ValueError(
-                    "Safe normalized transaction is missing: "
-                    + ", ".join(missing_fields)
+                    "Safe normalized transaction is missing: " + ", ".join(missing_fields)
                 )
 
             if self.amount == Decimal("0.00"):
                 raise ValueError("A safe normalized transaction cannot have zero amount")
 
             if error_issues:
-                raise ValueError(
-                    "A safe normalized transaction cannot contain error issues"
-                )
+                raise ValueError("A safe normalized transaction cannot contain error issues")
 
         if self.status == RecordStatus.INVALID and not error_issues:
-            raise ValueError(
-                "An invalid transaction must contain at least one error issue"
-            )
+            raise ValueError("An invalid transaction must contain at least one error issue")
 
         if self.status == RecordStatus.DUPLICATE and self.duplicate_of is None:
-            raise ValueError(
-                "A duplicate transaction must reference its canonical transaction"
-            )
+            raise ValueError("A duplicate transaction must reference its canonical transaction")
 
-        if (
-            self.status != RecordStatus.DUPLICATE
-            and self.duplicate_of is not None
-        ):
-            raise ValueError(
-                "Only duplicate transactions may reference a canonical transaction"
-            )
+        if self.status != RecordStatus.DUPLICATE and self.duplicate_of is not None:
+            raise ValueError("Only duplicate transactions may reference a canonical transaction")
 
         return self
