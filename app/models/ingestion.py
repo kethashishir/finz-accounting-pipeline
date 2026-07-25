@@ -32,9 +32,11 @@ SUPPORTED_DATE_FORMATS = frozenset(
 
 
 def utc_now() -> datetime:
-    """Return the current timezone-aware UTC timestamp."""
+    """Return a UTC timestamp aligned to BSON millisecond precision."""
 
-    return datetime.now(UTC)
+    current = datetime.now(UTC)
+    milliseconds = current.microsecond // 1_000
+    return current.replace(microsecond=milliseconds * 1_000)
 
 
 class FileType(StrEnum):
