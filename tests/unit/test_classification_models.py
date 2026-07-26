@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 from pydantic import ValidationError
@@ -15,6 +16,8 @@ from app.models.classification import (
     TransactionClassification,
     TransactionType,
 )
+
+NORMALIZED_TRANSACTION_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
 def _decision() -> ClassificationDecision:
@@ -74,6 +77,14 @@ def test_transaction_type_values_cover_required_accounting_categories() -> None:
     }
 
 
+def test_classification_requires_normalized_transaction_uuid() -> None:
+    with pytest.raises(ValidationError):
+        TransactionClassification(
+            normalized_transaction_id="not-a-valid-uuid",
+            decision=_decision(),
+        )
+
+
 def test_decision_uses_decimal_confidence_and_preserves_mapping() -> None:
     decision = _decision()
 
@@ -114,7 +125,7 @@ def test_pending_classification_cannot_include_reviewer() -> None:
         match="pending classifications cannot include reviewer metadata",
     ):
         TransactionClassification(
-            normalized_transaction_id="normalized-transaction-1",
+            normalized_transaction_id=NORMALIZED_TRANSACTION_ID,
             decision=_decision(),
             review_status=ReviewStatus.PENDING,
             reviewer=_reviewer(),
@@ -136,7 +147,7 @@ def test_final_review_status_requires_reviewer(
         match="approved or rejected classifications require reviewer metadata",
     ):
         TransactionClassification(
-            normalized_transaction_id="normalized-transaction-1",
+            normalized_transaction_id=NORMALIZED_TRANSACTION_ID,
             decision=_decision(),
             review_status=review_status,
         )
@@ -165,7 +176,7 @@ def test_valid_correction_chain_updates_current_version() -> None:
     )
 
     classification = TransactionClassification(
-        normalized_transaction_id="normalized-transaction-1",
+        normalized_transaction_id=NORMALIZED_TRANSACTION_ID,
         version=2,
         decision=corrected_decision,
         review_status=ReviewStatus.APPROVED,
@@ -196,7 +207,7 @@ def test_correction_history_must_begin_at_version_one() -> None:
         match="correction history must be contiguous",
     ):
         TransactionClassification(
-            normalized_transaction_id="normalized-transaction-1",
+            normalized_transaction_id=NORMALIZED_TRANSACTION_ID,
             version=3,
             decision=corrected_decision,
             review_status=ReviewStatus.APPROVED,
@@ -224,7 +235,7 @@ def test_current_decision_must_match_latest_correction() -> None:
         match="current classification decision must match",
     ):
         TransactionClassification(
-            normalized_transaction_id="normalized-transaction-1",
+            normalized_transaction_id=NORMALIZED_TRANSACTION_ID,
             version=2,
             decision=previous_decision,
             review_status=ReviewStatus.APPROVED,

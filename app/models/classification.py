@@ -4,6 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated
+from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -135,7 +136,7 @@ class ClassificationCorrection(ImmutableAccountingModel):
 class TransactionClassification(ImmutableAccountingModel):
     """Current classification plus complete correction and review history."""
 
-    normalized_transaction_id: NonEmptyString
+    normalized_transaction_id: UUID
     version: int = Field(default=1, ge=1)
     decision: ClassificationDecision
     review_status: ReviewStatus = ReviewStatus.PENDING
