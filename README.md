@@ -335,3 +335,12 @@ against MongoDB, Gemini, and a QuickBooks Online sandbox.
 The repository contains the production implementation, automated tests, safe
 configuration template, setup instructions, validated accounting results, and
 technical architecture documentation.
+
+## License
+
+The application source code is licensed under the
+[MIT License](LICENSE).
+
+The supplied Finz challenge workbook, QuickBooks sandbox data, and other
+third-party materials are not covered by this license and remain subject to
+their original terms.
