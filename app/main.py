@@ -67,12 +67,19 @@ def build_lifespan(settings: Settings):
             )
             gemini_classifier = _build_optional_gemini_classifier(settings)
 
+            ingestion_repository = IngestionRepository(mongodb.database)
+            classification_repository = ClassificationRepository(mongodb.database)
+            classification_pattern_repository = ClassificationPatternRepository(mongodb.database)
+
+            if settings.app_env != "test":
+                await ingestion_repository.ensure_indexes()
+                await classification_repository.ensure_indexes()
+                await classification_pattern_repository.ensure_indexes()
+
             app.state.mongodb = mongodb
-            app.state.ingestion_repository = IngestionRepository(mongodb.database)
-            app.state.classification_repository = ClassificationRepository(mongodb.database)
-            app.state.classification_pattern_repository = ClassificationPatternRepository(
-                mongodb.database
-            )
+            app.state.ingestion_repository = ingestion_repository
+            app.state.classification_repository = classification_repository
+            app.state.classification_pattern_repository = classification_pattern_repository
             app.state.chart_of_accounts = chart_of_accounts
             app.state.classification_rule_set = classification_rule_set
             app.state.gemini_classifier = gemini_classifier
