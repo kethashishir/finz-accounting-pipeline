@@ -27,6 +27,8 @@ def test_required_interface_and_static_assets_render() -> None:
         assert "Classification review" in response.text
         assert "Cash-basis Profit &amp; Loss" in response.text
         assert "QuickBooks reconciliation" in response.text
+        assert "$68,180.00" not in response.text
+        assert "Not run in this browser session" in response.text
 
         stylesheet = client.get("/static/app.css")
         javascript = client.get("/static/app.js")

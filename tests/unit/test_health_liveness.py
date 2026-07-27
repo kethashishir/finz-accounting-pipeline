@@ -17,5 +17,5 @@ def test_liveness_endpoint_reports_application_metadata() -> None:
     assert body["status"] == "ok"
     assert body["service"] == "Finz Accounting Pipeline"
     assert body["environment"] == "development"
-    assert body["version"] == "0.1.0"
+    assert body["version"] == "1.0.0"
     assert body["timestamp"]

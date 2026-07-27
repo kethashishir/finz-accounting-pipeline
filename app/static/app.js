@@ -683,6 +683,15 @@ async function loadProfitLoss() {
     activeProfitLossIndex =
       profitLossReports.length - 1;
 
+    byId("overview-net-profit").textContent = money(
+      payload.consolidated.net_profit,
+      payload.consolidated.currency,
+    );
+    byId("overview-pnl-caption").textContent =
+      `${formatDate(payload.consolidated.start_date)}–` +
+      `${formatDate(payload.consolidated.end_date)} · ` +
+      "calculated from approved canonical transactions.";
+
     renderProfitLossTabs();
     renderProfitLoss();
   } catch (error) {
@@ -917,8 +926,19 @@ async function runReconciliation() {
       );
     }
 
+    byId("reconciliation-icon").textContent = "✓";
+    byId("reconciliation-status").textContent =
+      "Live reconciliation passed";
+    byId("reconciliation-caption").textContent =
+      "April, May, June, and the consolidated quarter " +
+      "matched every controlled account and required total.";
     showToast("QuickBooks reconciliation passed.");
   } catch (error) {
+    byId("reconciliation-icon").textContent = "!";
+    byId("reconciliation-status").textContent =
+      "Live reconciliation failed";
+    byId("reconciliation-caption").textContent =
+      "Review the output below; no passing result is claimed.";
     showToast(error.message, true);
   } finally {
     setBusy(button, false);

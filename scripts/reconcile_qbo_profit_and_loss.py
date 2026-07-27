@@ -197,7 +197,8 @@ async def main() -> None:
                     f"internal={_money(line.internal_amount)}, "
                     f"qbo={_money(line.quickbooks_amount)}, "
                     f"difference={_money(line.difference)}, "
-                    f"status={status}"
+                    f"status={status}, "
+                    f"explanation={line.explanation}"
                 )
 
             print("  Period reconciliation: " + ("PASS" if result.reconciled else "FAIL"))
