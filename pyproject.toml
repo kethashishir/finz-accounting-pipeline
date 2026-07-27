@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "finz-accounting-pipeline"
-version = "0.1.0"
+version = "1.0.0"
 description = "Accounting data ingestion, classification, QuickBooks sync, and P&L reconciliation"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

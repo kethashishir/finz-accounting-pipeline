@@ -125,13 +125,12 @@
 
           <article class="panel highlight-panel">
             <div>
-              <p class="eyebrow">Consolidated result</p>
+              <p class="eyebrow">Live internal result</p>
               <h3>Cash-basis net profit</h3>
             </div>
-            <strong class="hero-number">$68,180.00</strong>
-            <p>
-              Apr 1–Jun 30, 2026. Internal and QuickBooks
-              reports reconcile at exact cents.
+            <strong class="hero-number" id="overview-net-profit">Loading…</strong>
+            <p id="overview-pnl-caption">
+              Calculated from approved canonical transactions.
             </p>
             <button
               class="button light"
@@ -448,33 +447,16 @@
           </button>
         </div>
 
-        <div class="reconciliation-summary">
-          <article>
-            <span>Revenue</span>
-            <strong>$300,275.00</strong>
-          </article>
-          <article>
-            <span>COGS</span>
-            <strong>$93,850.00</strong>
-          </article>
-          <article>
-            <span>Operating expenses</span>
-            <strong>$138,245.00</strong>
-          </article>
-          <article>
-            <span>Net profit</span>
-            <strong>$68,180.00</strong>
-          </article>
-        </div>
-
         <article class="panel reconciliation-card">
-          <div class="reconcile-icon">✓</div>
+          <div class="reconcile-icon" id="reconciliation-icon">↻</div>
           <div>
-            <p class="eyebrow">Last validated acceptance</p>
-            <h3>All four periods reconciled</h3>
-            <p>
-              April, May, June, and the consolidated quarter
-              matched every controlled account at a $0.00 difference.
+            <p class="eyebrow">Live sandbox validation</p>
+            <h3 id="reconciliation-status">
+              Not run in this browser session
+            </h3>
+            <p id="reconciliation-caption">
+              Run the read-only comparison to retrieve four
+              QuickBooks cash-basis reports and compare every account.
             </p>
           </div>
         </article>

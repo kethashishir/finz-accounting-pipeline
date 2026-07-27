@@ -40,6 +40,14 @@ and net-profit value at an exact **$0.00 difference**.
 | June 2026 | $95,525.00 | $30,475.00 | $65,050.00 | $47,145.00 | $17,905.00 |
 | Consolidated | **$300,275.00** | **$93,850.00** | **$206,425.00** | **$138,245.00** | **$68,180.00** |
 
+## Submission evidence
+
+- [Internally generated monthly and consolidated P&Ls](docs/INTERNAL_PNL.md)
+- [Sanitized QBO P&L and completed reconciliation](docs/QBO_RECONCILIATION.md)
+- [QuickBooks sandbox setup and accounting choices](docs/QBO_SETUP.md)
+- [AI usage and independent validation](docs/AI_USAGE.md)
+- [Detailed architecture and data model](docs/ARCHITECTURE.md)
+
 ## Completed workflow
 
 1. Inspect CSV and Excel bank exports before persistence.
@@ -218,6 +226,10 @@ The synchronization service:
 - Recovers stale attempts safely
 - Avoids displaying external transaction identifiers
 
+Follow the complete
+[QuickBooks sandbox, OAuth, account-setup, and validation guide](docs/QBO_SETUP.md)
+before the first synchronization.
+
 Run the guarded sandbox synchronization:
 
 ```bash
@@ -305,6 +317,38 @@ false revenue or expense.
 - QuickBooks writes are guarded and idempotent.
 - Reconciliation compares exact account and total values.
 - Provider errors are surfaced without exposing secrets.
+
+## Assumptions
+
+- BrightFix Home Services LLC reports in USD on the cash basis for April 1
+  through June 30, 2026, with zero opening balances.
+- Positive bank amounts are receipts and negative amounts are payments.
+- Transaction date, rather than posted date, controls cash-basis recognition.
+- The supplied chart of accounts and challenge accounting treatments are
+  authoritative.
+- Customer refunds reduce revenue through account 4100.
+- Materials and subcontractors are COGS; the configured operating vendors are
+  operating expenses.
+- Owner activity, fixed assets, internal transfers, duplicates, invalid
+  records, and unapproved classifications are excluded from the P&L.
+- Paired transfer rows represent one movement of cash and become one balanced
+  JournalEntry.
+
+## Known limitations
+
+- The application is scoped to one local USD company and one QBO sandbox
+  connection; production multi-tenant operation is intentionally out of scope.
+- Sales tax, inventory, A/R, A/P, depreciation, payroll liabilities, foreign
+  currency, and opening-balance migration are outside the challenge scope.
+- Vendor rules are configuration-driven but are tailored to the supplied
+  BrightFix dataset; unknown descriptions require Gemini or human review.
+- The local UI triggers long-running QBO scripts synchronously and is designed
+  for the challenge workflow, not a distributed production job queue.
+- QBO and Gemini live operations require the reviewer’s own credentials and
+  network access. Secrets and the source workbook are intentionally absent
+  from Git.
+- Intuit sandbox sample activity may exist, so reconciliation explicitly
+  scopes reports to the 17 controlled BrightFix P&L accounts.
 
 ## Validation
 
