@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 from fastapi import FastAPI
@@ -11,9 +12,18 @@ from app.api.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
 from app.db.client import MongoDatabase
+from app.repositories.classification import (
+    ClassificationRepository,
+)
 from app.repositories.ingestion import IngestionRepository
+from app.services.accounting.chart_of_accounts import (
+    load_chart_of_accounts,
+)
 
 logger = structlog.get_logger(__name__)
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CHART_OF_ACCOUNTS_PATH = PROJECT_ROOT / "sample_config" / "chart_of_accounts.json"
 
 
 def build_lifespan(settings: Settings):
@@ -27,6 +37,8 @@ def build_lifespan(settings: Settings):
         )
         app.state.mongodb = mongodb
         app.state.ingestion_repository = IngestionRepository(mongodb.database)
+        app.state.classification_repository = ClassificationRepository(mongodb.database)
+        app.state.chart_of_accounts = load_chart_of_accounts(CHART_OF_ACCOUNTS_PATH)
 
         logger.info(
             "application_started",
