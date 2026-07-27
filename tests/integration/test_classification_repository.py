@@ -1,7 +1,7 @@
 """Integration tests for safe classification persistence."""
 
 from collections.abc import AsyncIterator
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -10,10 +10,13 @@ import pytest
 from app.core.config import get_settings
 from app.db.client import MongoDatabase
 from app.models.classification import (
+    ClassificationCorrection,
     ClassificationDecision,
     ClassificationSource,
     Counterparty,
     QuickBooksAccountMapping,
+    ReviewerMetadata,
+    ReviewStatus,
     TransactionClassification,
     TransactionType,
 )
@@ -28,7 +31,10 @@ from app.models.ingestion import (
 from app.repositories.classification import (
     ClassificationPersistenceConflictError,
     ClassificationRepository,
+    ClassificationReviewConflictError,
     ClassificationTransactionNotFoundError,
+    InvalidClassificationTransitionError,
+    StaleClassificationVersionError,
     UnsafeClassificationTransactionError,
 )
 from app.repositories.ingestion import IngestionRepository
@@ -128,6 +134,82 @@ def create_classification(
             source=ClassificationSource.DETERMINISTIC_RULE,
             review_required=False,
         ),
+    )
+
+
+REVIEWED_AT = datetime(
+    2026,
+    7,
+    25,
+    18,
+    0,
+    tzinfo=UTC,
+)
+
+
+def create_reviewer() -> ReviewerMetadata:
+    """Create stable reviewer metadata for persistence tests."""
+
+    return ReviewerMetadata(
+        reviewer_id="shishir",
+        reviewed_at=REVIEWED_AT,
+        notes="Reviewed against the source bank transaction.",
+    )
+
+
+def create_corrected_classification(
+    current: TransactionClassification,
+    *,
+    account_number: str,
+    account_name: str,
+) -> TransactionClassification:
+    """Append one manual correction and reopen the review state."""
+
+    reviewer = create_reviewer()
+    corrected_decision = ClassificationDecision(
+        transaction_type=TransactionType.OPERATING_EXPENSE,
+        counterparty=current.decision.counterparty,
+        qbo_account=QuickBooksAccountMapping(
+            account_number=account_number,
+            account_name=account_name,
+        ),
+        confidence_score=Decimal("1.000"),
+        explanation="A reviewer confirmed the corrected expense account.",
+        source=ClassificationSource.MANUAL_REVIEW,
+        review_required=False,
+    )
+    correction = ClassificationCorrection(
+        from_version=current.version,
+        to_version=current.version + 1,
+        previous_decision=current.decision,
+        corrected_decision=corrected_decision,
+        corrected_by=reviewer,
+        reason="Correct the account using the reviewed bank description.",
+    )
+
+    return TransactionClassification(
+        normalized_transaction_id=current.normalized_transaction_id,
+        version=current.version + 1,
+        decision=corrected_decision,
+        review_status=ReviewStatus.PENDING,
+        corrections=(*current.corrections, correction),
+    )
+
+
+def create_reviewed_classification(
+    current: TransactionClassification,
+    *,
+    review_status: ReviewStatus,
+) -> TransactionClassification:
+    """Apply a final review without changing accounting history."""
+
+    return TransactionClassification(
+        normalized_transaction_id=current.normalized_transaction_id,
+        version=current.version,
+        decision=current.decision,
+        review_status=review_status,
+        reviewer=create_reviewer(),
+        corrections=current.corrections,
     )
 
 
@@ -280,3 +362,253 @@ async def test_conflicting_initial_classification_is_rejected(
 
     stored = await classification_repository.find_by_transaction_id(transaction.id)
     assert stored == original
+
+
+@pytest.mark.asyncio
+async def test_corrections_are_atomic_idempotent_and_preserve_history(
+    repositories: tuple[
+        ClassificationRepository,
+        IngestionRepository,
+    ],
+) -> None:
+    """Sequential corrections preserve every prior accounting decision."""
+
+    classification_repository, ingestion_repository = repositories
+    transaction = await persist_valid_transaction(ingestion_repository)
+    initial = create_classification(transaction.id)
+
+    await classification_repository.save_initial(initial)
+
+    first_correction = create_corrected_classification(
+        initial,
+        account_number="6090",
+        account_name="Office & General",
+    )
+
+    first_saved = await classification_repository.save_correction(
+        first_correction,
+        expected_version=1,
+    )
+    first_retry = await classification_repository.save_correction(
+        first_correction,
+        expected_version=1,
+    )
+
+    second_correction = create_corrected_classification(
+        first_correction,
+        account_number="6030",
+        account_name="Software & Subscriptions",
+    )
+
+    second_saved = await classification_repository.save_correction(
+        second_correction,
+        expected_version=2,
+    )
+
+    stored = await classification_repository.find_by_transaction_id(transaction.id)
+
+    assert first_saved is True
+    assert first_retry is False
+    assert second_saved is True
+    assert stored == second_correction
+    assert stored is not None
+    assert stored.version == 3
+    assert len(stored.corrections) == 2
+    assert stored.corrections[0] == first_correction.corrections[0]
+    assert stored.review_status is ReviewStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_stale_correction_version_is_rejected(
+    repositories: tuple[
+        ClassificationRepository,
+        IngestionRepository,
+    ],
+) -> None:
+    """An outdated reviewer cannot overwrite a newer classification."""
+
+    classification_repository, ingestion_repository = repositories
+    transaction = await persist_valid_transaction(ingestion_repository)
+    initial = create_classification(transaction.id)
+
+    await classification_repository.save_initial(initial)
+
+    winning_correction = create_corrected_classification(
+        initial,
+        account_number="6090",
+        account_name="Office & General",
+    )
+    stale_correction = create_corrected_classification(
+        initial,
+        account_number="6030",
+        account_name="Software & Subscriptions",
+    )
+
+    await classification_repository.save_correction(
+        winning_correction,
+        expected_version=1,
+    )
+
+    with pytest.raises(
+        StaleClassificationVersionError,
+        match="stored version is 2",
+    ):
+        await classification_repository.save_correction(
+            stale_correction,
+            expected_version=1,
+        )
+
+    stored = await classification_repository.find_by_transaction_id(transaction.id)
+    assert stored == winning_correction
+
+
+@pytest.mark.asyncio
+async def test_forged_correction_history_is_rejected(
+    repositories: tuple[
+        ClassificationRepository,
+        IngestionRepository,
+    ],
+) -> None:
+    """A client cannot replace the stored decision with invented history."""
+
+    classification_repository, ingestion_repository = repositories
+    transaction = await persist_valid_transaction(ingestion_repository)
+    stored_initial = create_classification(transaction.id)
+
+    await classification_repository.save_initial(stored_initial)
+
+    invented_initial = create_classification(
+        transaction.id,
+        account_number="6090",
+        account_name="Office & General",
+    )
+    forged_update = create_corrected_classification(
+        invented_initial,
+        account_number="6030",
+        account_name="Software & Subscriptions",
+    )
+
+    with pytest.raises(
+        InvalidClassificationTransitionError,
+        match="stored decision",
+    ):
+        await classification_repository.save_correction(
+            forged_update,
+            expected_version=1,
+        )
+
+    stored = await classification_repository.find_by_transaction_id(transaction.id)
+    assert stored == stored_initial
+
+
+@pytest.mark.asyncio
+async def test_approval_is_persisted_idempotently(
+    repositories: tuple[
+        ClassificationRepository,
+        IngestionRepository,
+    ],
+) -> None:
+    """Approval records reviewer metadata without changing the decision."""
+
+    classification_repository, ingestion_repository = repositories
+    transaction = await persist_valid_transaction(ingestion_repository)
+    initial = create_classification(transaction.id)
+    approved = create_reviewed_classification(
+        initial,
+        review_status=ReviewStatus.APPROVED,
+    )
+
+    await classification_repository.save_initial(initial)
+
+    first = await classification_repository.save_review(
+        approved,
+        expected_version=1,
+    )
+    retry = await classification_repository.save_review(
+        approved,
+        expected_version=1,
+    )
+    stored = await classification_repository.find_by_transaction_id(transaction.id)
+
+    assert first is True
+    assert retry is False
+    assert stored == approved
+    assert stored is not None
+    assert stored.version == 1
+    assert stored.decision == initial.decision
+
+
+@pytest.mark.asyncio
+async def test_rejection_is_persisted_idempotently(
+    repositories: tuple[
+        ClassificationRepository,
+        IngestionRepository,
+    ],
+) -> None:
+    """Rejection preserves the accounting decision for auditability."""
+
+    classification_repository, ingestion_repository = repositories
+    transaction = await persist_valid_transaction(ingestion_repository)
+    initial = create_classification(transaction.id)
+    rejected = create_reviewed_classification(
+        initial,
+        review_status=ReviewStatus.REJECTED,
+    )
+
+    await classification_repository.save_initial(initial)
+
+    first = await classification_repository.save_review(
+        rejected,
+        expected_version=1,
+    )
+    retry = await classification_repository.save_review(
+        rejected,
+        expected_version=1,
+    )
+    stored = await classification_repository.find_by_transaction_id(transaction.id)
+
+    assert first is True
+    assert retry is False
+    assert stored == rejected
+    assert stored is not None
+    assert stored.decision == initial.decision
+
+
+@pytest.mark.asyncio
+async def test_competing_review_outcome_is_rejected(
+    repositories: tuple[
+        ClassificationRepository,
+        IngestionRepository,
+    ],
+) -> None:
+    """The first final review wins over a competing browser session."""
+
+    classification_repository, ingestion_repository = repositories
+    transaction = await persist_valid_transaction(ingestion_repository)
+    initial = create_classification(transaction.id)
+    approved = create_reviewed_classification(
+        initial,
+        review_status=ReviewStatus.APPROVED,
+    )
+    rejected = create_reviewed_classification(
+        initial,
+        review_status=ReviewStatus.REJECTED,
+    )
+
+    await classification_repository.save_initial(initial)
+    await classification_repository.save_review(
+        approved,
+        expected_version=1,
+    )
+
+    with pytest.raises(
+        ClassificationReviewConflictError,
+        match="pending classification",
+    ):
+        await classification_repository.save_review(
+            rejected,
+            expected_version=1,
+        )
+
+    stored = await classification_repository.find_by_transaction_id(transaction.id)
+    assert stored == approved
