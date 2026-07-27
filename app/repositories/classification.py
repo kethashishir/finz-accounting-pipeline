@@ -13,12 +13,14 @@ from app.db.client import MongoDocument
 from app.db.serialization import (
     classification_from_document,
     classification_to_document,
+    transaction_from_document,
 )
 from app.models.classification import (
     ReviewStatus,
     TransactionClassification,
 )
 from app.models.ingestion import RecordStatus
+from app.models.review import ReviewQueueItem
 
 
 class ClassificationPersistenceConflictError(RuntimeError):
@@ -266,6 +268,106 @@ class ClassificationRepository:
             classification.normalized_transaction_id: classification
             for classification in classifications
         }
+
+    async def find_review_queue(
+        self,
+        *,
+        limit: int = 100,
+    ) -> tuple[ReviewQueueItem, ...]:
+        """Return pending reviews in accounting-risk priority order."""
+
+        if isinstance(limit, bool) or limit < 1 or limit > 200:
+            raise ValueError("Review queue limit must be between 1 and 200")
+
+        required = await self._find_pending_classifications(
+            review_required=True,
+            limit=limit,
+        )
+        remaining = limit - len(required)
+
+        optional = (
+            await self._find_pending_classifications(
+                review_required=False,
+                limit=remaining,
+            )
+            if remaining
+            else ()
+        )
+
+        classifications = (*required, *optional)
+
+        if not classifications:
+            return ()
+
+        transaction_ids = tuple(
+            classification.normalized_transaction_id for classification in classifications
+        )
+        cursor = self.transactions.find(
+            {
+                "_id": {
+                    "$in": list(transaction_ids),
+                }
+            }
+        )
+
+        transactions = {
+            transaction.id: transaction
+            async for document in cursor
+            for transaction in (transaction_from_document(document),)
+        }
+
+        items: list[ReviewQueueItem] = []
+
+        for classification in classifications:
+            transaction = transactions.get(classification.normalized_transaction_id)
+
+            if transaction is None:
+                raise ClassificationTransactionNotFoundError(
+                    "Classification "
+                    f"{classification.normalized_transaction_id} "
+                    "has no normalized transaction evidence"
+                )
+
+            items.append(
+                ReviewQueueItem(
+                    transaction=transaction,
+                    classification=classification,
+                )
+            )
+
+        return tuple(items)
+
+    async def _find_pending_classifications(
+        self,
+        *,
+        review_required: bool,
+        limit: int,
+    ) -> tuple[TransactionClassification, ...]:
+        """Load one pending queue priority group in stable order."""
+
+        if limit == 0:
+            return ()
+
+        cursor = (
+            self.classifications.find(
+                {
+                    "review_status": ReviewStatus.PENDING.value,
+                    "decision.review_required": review_required,
+                }
+            )
+            .sort(
+                [
+                    (
+                        "decision.confidence_score",
+                        ASCENDING,
+                    ),
+                    ("_id", ASCENDING),
+                ]
+            )
+            .limit(limit)
+        )
+
+        return tuple([classification_from_document(document) async for document in cursor])
 
     async def _find_required_classification(
         self,

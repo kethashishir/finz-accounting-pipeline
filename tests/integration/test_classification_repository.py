@@ -659,3 +659,192 @@ async def test_bulk_find_with_no_ids_returns_empty_mapping(
     found = await classification_repository.find_by_transaction_ids(())
 
     assert found == {}
+
+
+async def persist_review_queue_transactions(
+    repository: IngestionRepository,
+    *,
+    count: int,
+) -> tuple[NormalizedTransaction, ...]:
+    """Persist several canonical transactions in one upload."""
+
+    upload = UploadBatch(
+        source_file_name="review-queue.csv",
+        file_type=FileType.CSV,
+        file_sha256="9" * 64,
+        physical_record_count=count,
+    )
+
+    raw_records: list[RawRecord] = []
+    transactions: list[NormalizedTransaction] = []
+
+    for index in range(1, count + 1):
+        description = f"Review Queue Merchant {index}"
+        raw_record = RawRecord(
+            upload_id=upload.id,
+            source_file_name=upload.source_file_name,
+            source_row_number=index + 1,
+            raw_values={
+                "Date": f"2026-04-{index:02d}",
+                "Description": description,
+                "Amount": "-100.00",
+            },
+            raw_hash=f"{index:064x}",
+        )
+        transaction = NormalizedTransaction(
+            upload_id=upload.id,
+            raw_record_id=raw_record.id,
+            source_transaction_id=(f"BF-REVIEW-QUEUE-{index:04d}"),
+            transaction_date=date(2026, 4, index),
+            description_original=description,
+            description_normalized=description.casefold(),
+            amount=Decimal("-100.00"),
+            currency="USD",
+            bank_account="Operating Checking",
+            direction=TransactionDirection.OUTFLOW,
+            fingerprint=f"{index + 100:064x}",
+            status=RecordStatus.VALID,
+        )
+
+        raw_records.append(raw_record)
+        transactions.append(transaction)
+
+    await repository.save_batch(
+        upload=upload,
+        raw_records=raw_records,
+        transactions=transactions,
+    )
+
+    return tuple(transactions)
+
+
+def create_review_queue_classification(
+    transaction: NormalizedTransaction,
+    *,
+    confidence_score: Decimal,
+    review_required: bool,
+) -> TransactionClassification:
+    """Create one pending classification with queue priority metadata."""
+
+    return TransactionClassification(
+        normalized_transaction_id=transaction.id,
+        decision=ClassificationDecision(
+            transaction_type=TransactionType.OPERATING_EXPENSE,
+            counterparty=Counterparty(
+                raw_name=transaction.description_original,
+                normalized_name=transaction.description_original,
+            ),
+            qbo_account=QuickBooksAccountMapping(
+                account_number="6090",
+                account_name="Office & General",
+            ),
+            confidence_score=confidence_score,
+            explanation=("Classification created for review queue ordering."),
+            source=ClassificationSource.GEMINI,
+            review_required=review_required,
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_review_queue_prioritizes_risk_and_excludes_final_reviews(
+    repositories: tuple[
+        ClassificationRepository,
+        IngestionRepository,
+    ],
+) -> None:
+    """Required and low-confidence pending reviews appear first."""
+
+    classification_repository, ingestion_repository = repositories
+    transactions = await persist_review_queue_transactions(
+        ingestion_repository,
+        count=5,
+    )
+
+    configurations = (
+        (Decimal("0.800"), True),
+        (Decimal("0.200"), False),
+        (Decimal("0.400"), True),
+        (Decimal("0.900"), False),
+        (Decimal("0.100"), True),
+    )
+
+    classifications = tuple(
+        create_review_queue_classification(
+            transaction,
+            confidence_score=confidence,
+            review_required=review_required,
+        )
+        for transaction, (
+            confidence,
+            review_required,
+        ) in zip(
+            transactions,
+            configurations,
+            strict=True,
+        )
+    )
+
+    for classification in classifications:
+        await classification_repository.save_initial(classification)
+
+    approved = create_reviewed_classification(
+        classifications[4],
+        review_status=ReviewStatus.APPROVED,
+    )
+    await classification_repository.save_review(
+        approved,
+        expected_version=1,
+    )
+
+    queue = await classification_repository.find_review_queue(limit=3)
+
+    assert [item.transaction.id for item in queue] == [
+        transactions[2].id,
+        transactions[0].id,
+        transactions[1].id,
+    ]
+
+    assert [item.classification.normalized_transaction_id for item in queue] == [
+        transactions[2].id,
+        transactions[0].id,
+        transactions[1].id,
+    ]
+
+    assert [item.classification.decision.review_required for item in queue] == [
+        True,
+        True,
+        False,
+    ]
+
+    assert transactions[4].id not in {item.transaction.id for item in queue}
+
+
+@pytest.mark.asyncio
+async def test_review_queue_limit_is_bounded(
+    repositories: tuple[
+        ClassificationRepository,
+        IngestionRepository,
+    ],
+) -> None:
+    """Repository callers cannot request unbounded review data."""
+
+    classification_repository, _ = repositories
+
+    with pytest.raises(
+        ValueError,
+        match="between 1 and 200",
+    ):
+        await classification_repository.find_review_queue(limit=0)
+
+    with pytest.raises(
+        ValueError,
+        match="between 1 and 200",
+    ):
+        await classification_repository.find_review_queue(limit=201)
+
+    with pytest.raises(
+        ValueError,
+        match="between 1 and 200",
+    ):
+        await classification_repository.find_review_queue(limit=True)
