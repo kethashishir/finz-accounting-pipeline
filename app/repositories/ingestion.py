@@ -217,6 +217,23 @@ class IngestionRepository:
             entity_name="normalized transaction",
         )
 
+    async def find_upload_by_id(
+        self,
+        upload_id: UUID,
+    ) -> UploadBatch | None:
+        """Return one upload batch by UUID."""
+
+        document = await self.uploads.find_one(
+            {
+                "_id": upload_id,
+            }
+        )
+
+        if document is None:
+            return None
+
+        return upload_from_document(document)
+
     async def find_upload_by_hash(
         self,
         file_sha256: str,
@@ -265,6 +282,23 @@ class IngestionRepository:
 
         transactions = [transaction_from_document(document) async for document in cursor]
         return tuple(transactions)
+
+    async def find_transaction_by_id(
+        self,
+        normalized_transaction_id: UUID,
+    ) -> NormalizedTransaction | None:
+        """Return one normalized transaction by UUID."""
+
+        document = await self.transactions.find_one(
+            {
+                "_id": normalized_transaction_id,
+            }
+        )
+
+        if document is None:
+            return None
+
+        return transaction_from_document(document)
 
     async def transactions_for_upload(
         self,

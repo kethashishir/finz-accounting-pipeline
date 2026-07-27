@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,12 +20,33 @@ class Settings(BaseSettings):
     mongodb_uri: str = "mongodb://localhost:27017"
     mongodb_database: str = "finz_accounting"
 
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
         frozen=True,
     )
+
+    @field_validator(
+        "gemini_api_key",
+        "gemini_model",
+        mode="before",
+    )
+    @classmethod
+    def normalize_optional_gemini_settings(
+        cls,
+        value: object,
+    ) -> object:
+        """Convert blank Gemini settings to disabled values."""
+
+        if isinstance(value, str):
+            normalized = value.strip()
+            return normalized or None
+
+        return value
 
     @field_validator("mongodb_database")
     @classmethod

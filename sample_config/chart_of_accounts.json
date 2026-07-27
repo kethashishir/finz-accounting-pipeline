@@ -1,0 +1,195 @@
+{
+  "schema_version": "1.0",
+  "company_name": "BrightFix Home Services LLC",
+  "accounts": [
+    {
+      "number": "1000",
+      "name": "Operating Checking",
+      "qbo_account_type": "Bank",
+      "suggested_detail_type": "Checking",
+      "statement": "balance_sheet",
+      "purpose": "Primary bank account used for operating receipts and payments",
+      "active": true
+    },
+    {
+      "number": "1010",
+      "name": "Tax Reserve",
+      "qbo_account_type": "Bank",
+      "suggested_detail_type": "Savings",
+      "statement": "balance_sheet",
+      "purpose": "Reserve account used only for internal transfers",
+      "active": true
+    },
+    {
+      "number": "1500",
+      "name": "Tools & Equipment",
+      "qbo_account_type": "Fixed Assets",
+      "suggested_detail_type": "Machinery and Equipment",
+      "statement": "balance_sheet",
+      "purpose": "Commercial equipment and tool purchases",
+      "active": true
+    },
+    {
+      "number": "3000",
+      "name": "Owner's Equity",
+      "qbo_account_type": "Equity",
+      "suggested_detail_type": "Owner's Equity",
+      "statement": "balance_sheet",
+      "purpose": "Owner contributions and distributions",
+      "active": true
+    },
+    {
+      "number": "4000",
+      "name": "Repair Service Revenue",
+      "qbo_account_type": "Income",
+      "suggested_detail_type": "Service/Fee Income",
+      "statement": "profit_and_loss",
+      "purpose": "Repair and maintenance jobs",
+      "active": true
+    },
+    {
+      "number": "4010",
+      "name": "Installation Revenue",
+      "qbo_account_type": "Income",
+      "suggested_detail_type": "Service/Fee Income",
+      "statement": "profit_and_loss",
+      "purpose": "Installation projects",
+      "active": true
+    },
+    {
+      "number": "4020",
+      "name": "Maintenance Plan Revenue",
+      "qbo_account_type": "Income",
+      "suggested_detail_type": "Service/Fee Income",
+      "statement": "profit_and_loss",
+      "purpose": "Recurring maintenance-plan receipts",
+      "active": true
+    },
+    {
+      "number": "4100",
+      "name": "Customer Refunds",
+      "qbo_account_type": "Income",
+      "suggested_detail_type": "Discounts/Refunds Given",
+      "statement": "profit_and_loss",
+      "purpose": "Contra-revenue account for customer refunds",
+      "active": true
+    },
+    {
+      "number": "5000",
+      "name": "Materials & Supplies",
+      "qbo_account_type": "Cost of Goods Sold",
+      "suggested_detail_type": "Supplies & Materials - COGS",
+      "statement": "profit_and_loss",
+      "purpose": "Materials consumed on customer jobs",
+      "active": true
+    },
+    {
+      "number": "5010",
+      "name": "Subcontractor Costs",
+      "qbo_account_type": "Cost of Goods Sold",
+      "suggested_detail_type": "Cost of Labor",
+      "statement": "profit_and_loss",
+      "purpose": "Third-party labor used on customer jobs",
+      "active": true
+    },
+    {
+      "number": "6000",
+      "name": "Payroll Expense",
+      "qbo_account_type": "Expenses",
+      "suggested_detail_type": "Payroll Expenses",
+      "statement": "profit_and_loss",
+      "purpose": "Employee payroll payments",
+      "active": true
+    },
+    {
+      "number": "6010",
+      "name": "Rent Expense",
+      "qbo_account_type": "Expenses",
+      "suggested_detail_type": "Rent or Lease of Buildings",
+      "statement": "profit_and_loss",
+      "purpose": "Office and workshop rent",
+      "active": true
+    },
+    {
+      "number": "6020",
+      "name": "Vehicle & Fuel",
+      "qbo_account_type": "Expenses",
+      "suggested_detail_type": "Auto",
+      "statement": "profit_and_loss",
+      "purpose": "Fuel and vehicle operating costs",
+      "active": true
+    },
+    {
+      "number": "6030",
+      "name": "Software & Subscriptions",
+      "qbo_account_type": "Expenses",
+      "suggested_detail_type": "Dues & Subscriptions",
+      "statement": "profit_and_loss",
+      "purpose": "Software and online subscriptions",
+      "active": true
+    },
+    {
+      "number": "6040",
+      "name": "Marketing & Advertising",
+      "qbo_account_type": "Expenses",
+      "suggested_detail_type": "Advertising/Promotional",
+      "statement": "profit_and_loss",
+      "purpose": "Paid advertising and lead-generation services",
+      "active": true
+    },
+    {
+      "number": "6050",
+      "name": "Insurance Expense",
+      "qbo_account_type": "Expenses",
+      "suggested_detail_type": "Insurance",
+      "statement": "profit_and_loss",
+      "purpose": "Business insurance",
+      "active": true
+    },
+    {
+      "number": "6060",
+      "name": "Utilities",
+      "qbo_account_type": "Expenses",
+      "suggested_detail_type": "Utilities",
+      "statement": "profit_and_loss",
+      "purpose": "Electricity, internet, and phone",
+      "active": true
+    },
+    {
+      "number": "6070",
+      "name": "Professional Fees",
+      "qbo_account_type": "Expenses",
+      "suggested_detail_type": "Legal & Professional Fees",
+      "statement": "profit_and_loss",
+      "purpose": "Accounting and professional services",
+      "active": true
+    },
+    {
+      "number": "6080",
+      "name": "Bank Fees",
+      "qbo_account_type": "Expenses",
+      "suggested_detail_type": "Bank Charges",
+      "statement": "profit_and_loss",
+      "purpose": "Bank service charges",
+      "active": true
+    },
+    {
+      "number": "6090",
+      "name": "Office & General",
+      "qbo_account_type": "Expenses",
+      "suggested_detail_type": "Office/General Administrative Expenses",
+      "statement": "profit_and_loss",
+      "purpose": "Office supplies and general administrative costs",
+      "active": true
+    },
+    {
+      "number": "6100",
+      "name": "Repairs & Maintenance",
+      "qbo_account_type": "Expenses",
+      "suggested_detail_type": "Repair & Maintenance",
+      "statement": "profit_and_loss",
+      "purpose": "Repairs to business vehicles and equipment",
+      "active": true
+    }
+  ]
+}

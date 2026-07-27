@@ -1,4 +1,4 @@
-"""BSON-safe serialization for accounting ingestion models."""
+"""BSON-safe serialization for accounting models."""
 
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ from uuid import UUID
 from bson import Binary
 from bson.decimal128 import Decimal128
 
+from app.models.classification import TransactionClassification
+from app.models.classification_pattern import LearnedClassificationPattern
 from app.models.ingestion import (
     NormalizedTransaction,
     RawRecord,
@@ -41,6 +43,56 @@ def upload_from_document(document: dict[str, Any]) -> UploadBatch:
     values = _decode_value({key: value for key, value in document.items() if key != "_id"})
     values["id"] = document["_id"]
     return UploadBatch.model_validate(values)
+
+
+def classification_to_document(
+    classification: TransactionClassification,
+) -> dict[str, Any]:
+    """Convert a transaction classification to a BSON-safe document."""
+
+    values = classification.model_dump(mode="python")
+    normalized_transaction_id = values.pop("normalized_transaction_id")
+
+    return {
+        "_id": normalized_transaction_id,
+        **_encode_value(values),
+    }
+
+
+def classification_from_document(
+    document: dict[str, Any],
+) -> TransactionClassification:
+    """Reconstruct and validate a transaction classification document."""
+
+    values = _decode_value({key: value for key, value in document.items() if key != "_id"})
+    values["normalized_transaction_id"] = document["_id"]
+
+    return TransactionClassification.model_validate(values)
+
+
+def learned_pattern_to_document(
+    pattern: LearnedClassificationPattern,
+) -> dict[str, Any]:
+    """Convert a learned classification pattern to a BSON-safe document."""
+
+    values = pattern.model_dump(mode="python")
+    identifier = values.pop("id")
+
+    return {
+        "_id": identifier,
+        **_encode_value(values),
+    }
+
+
+def learned_pattern_from_document(
+    document: dict[str, Any],
+) -> LearnedClassificationPattern:
+    """Reconstruct and validate a learned classification pattern."""
+
+    values = _decode_value({key: value for key, value in document.items() if key != "_id"})
+    values["id"] = document["_id"]
+
+    return LearnedClassificationPattern.model_validate(values)
 
 
 def raw_record_to_document(record: RawRecord) -> dict[str, Any]:

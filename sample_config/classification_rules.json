@@ -1,0 +1,510 @@
+{
+  "schema_version": "1.0",
+  "rules": [
+    {
+      "id": "transfer_to_tax_reserve",
+      "priority": 10,
+      "active": true,
+      "match": {
+        "description_contains_all": [
+          "online transfer to tax reserve",
+          "tax reserve transfer"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "transfer",
+        "account_number": "1010",
+        "account_name": "Tax Reserve",
+        "confidence_score": "1.000",
+        "explanation": "The description explicitly identifies an internal transfer from Operating Checking to Tax Reserve.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "transfer_from_operating",
+      "priority": 20,
+      "active": true,
+      "match": {
+        "description_contains_all": [
+          "online transfer from operating",
+          "tax reserve transfer"
+        ],
+        "direction": "inflow",
+        "bank_account": "Tax Reserve",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "transfer",
+        "account_number": "1000",
+        "account_name": "Operating Checking",
+        "confidence_score": "1.000",
+        "explanation": "The description explicitly identifies the Tax Reserve side of an internal transfer from Operating Checking.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "customer_refund",
+      "priority": 30,
+      "active": true,
+      "match": {
+        "description_contains_all": [
+          "refund",
+          "to"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "refund",
+        "account_number": "4100",
+        "account_name": "Customer Refunds",
+        "confidence_score": "1.000",
+        "explanation": "The payment description explicitly identifies a refund issued to a customer.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "owner_contribution",
+      "priority": 40,
+      "active": true,
+      "match": {
+        "description_contains_all": [
+          "owner",
+          "capital"
+        ],
+        "direction": "inflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "owner_contribution",
+        "account_number": "3000",
+        "account_name": "Owner's Equity",
+        "confidence_score": "1.000",
+        "explanation": "The receipt explicitly identifies owner capital and is not operating revenue.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "owner_distribution",
+      "priority": 50,
+      "active": true,
+      "match": {
+        "description_contains_all": [
+          "owner",
+          "distribution"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "owner_distribution",
+        "account_number": "3000",
+        "account_name": "Owner's Equity",
+        "confidence_score": "1.000",
+        "explanation": "The payment explicitly identifies an owner distribution and is not an operating expense.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "commercial_tool_package",
+      "priority": 60,
+      "active": true,
+      "match": {
+        "description_exact": [
+          "milwaukee commercial tool package"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "fixed_asset_purchase",
+        "account_number": "1500",
+        "account_name": "Tools & Equipment",
+        "confidence_score": "1.000",
+        "explanation": "The commercial tool package is a capital equipment purchase rather than a current-period expense.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "maintenance_plan_revenue",
+      "priority": 100,
+      "active": true,
+      "match": {
+        "description_contains_any": [
+          "maint plan",
+          "service plan"
+        ],
+        "direction": "inflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "revenue",
+        "account_number": "4020",
+        "account_name": "Maintenance Plan Revenue",
+        "confidence_score": "0.990",
+        "explanation": "The receipt explicitly identifies a maintenance or service plan payment.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "installation_revenue",
+      "priority": 110,
+      "active": true,
+      "match": {
+        "description_contains_any": [
+          "equipment install",
+          "install",
+          "project"
+        ],
+        "direction": "inflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "revenue",
+        "account_number": "4010",
+        "account_name": "Installation Revenue",
+        "confidence_score": "0.990",
+        "explanation": "The receipt description identifies an installation or customer project.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "repair_service_revenue",
+      "priority": 120,
+      "active": true,
+      "match": {
+        "description_contains_any": [
+          "repair",
+          "service",
+          "job",
+          "inv"
+        ],
+        "description_excludes": [
+          "maint plan",
+          "service plan",
+          "install",
+          "project",
+          "owner capital"
+        ],
+        "direction": "inflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "revenue",
+        "account_number": "4000",
+        "account_name": "Repair Service Revenue",
+        "confidence_score": "0.980",
+        "explanation": "The receipt describes a repair, service, job, or customer invoice and is not an installation or maintenance plan.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "materials_and_supplies",
+      "priority": 200,
+      "active": true,
+      "match": {
+        "description_contains_any": [
+          "supplyhouse.com",
+          "abc plumbing supply",
+          "ces #nyc",
+          "ferguson.com",
+          "ferguson ent",
+          "homedepot.com",
+          "the home depot",
+          "lowe's home improvement",
+          "lowes.com",
+          "ww grainger"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "cost_of_goods_sold",
+        "account_number": "5000",
+        "account_name": "Materials & Supplies",
+        "confidence_score": "0.990",
+        "explanation": "The vendor is a configured materials supplier used for customer jobs.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "subcontractor_costs",
+      "priority": 210,
+      "active": true,
+      "match": {
+        "description_contains_any": [
+          "apex elec",
+          "apex electrical",
+          "metro handyman",
+          "northline hvac",
+          "precision install svcs",
+          "rivera plumbing",
+          "rivera plbg"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "cost_of_goods_sold",
+        "account_number": "5010",
+        "account_name": "Subcontractor Costs",
+        "confidence_score": "0.990",
+        "explanation": "The payment is to a configured third-party labor provider used on customer jobs.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "payroll_expense",
+      "priority": 300,
+      "active": true,
+      "match": {
+        "description_contains_any": [
+          "adp payroll"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "operating_expense",
+        "account_number": "6000",
+        "account_name": "Payroll Expense",
+        "confidence_score": "1.000",
+        "explanation": "The payment is explicitly identified as ADP payroll.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "rent_expense",
+      "priority": 310,
+      "active": true,
+      "match": {
+        "description_contains_all": [
+          "parkside commercial mgmt",
+          "rent"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "operating_expense",
+        "account_number": "6010",
+        "account_name": "Rent Expense",
+        "confidence_score": "1.000",
+        "explanation": "The payment explicitly identifies monthly commercial rent.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "vehicle_and_fuel",
+      "priority": 320,
+      "active": true,
+      "match": {
+        "description_contains_any": [
+          "bp#",
+          "exxonmobil",
+          "shell oil",
+          "speedway"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "operating_expense",
+        "account_number": "6020",
+        "account_name": "Vehicle & Fuel",
+        "confidence_score": "0.990",
+        "explanation": "The merchant is a configured fuel vendor used for business vehicles.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "software_and_subscriptions",
+      "priority": 330,
+      "active": true,
+      "match": {
+        "description_contains_any": [
+          "google workspace",
+          "intuit *quickbooks online",
+          "servicetitan subscription"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "operating_expense",
+        "account_number": "6030",
+        "account_name": "Software & Subscriptions",
+        "confidence_score": "0.990",
+        "explanation": "The payment is to a configured business software or subscription provider.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "marketing_and_advertising",
+      "priority": 340,
+      "active": true,
+      "match": {
+        "description_contains_any": [
+          "google ads",
+          "yelp advertising"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "operating_expense",
+        "account_number": "6040",
+        "account_name": "Marketing & Advertising",
+        "confidence_score": "0.990",
+        "explanation": "The payment is to a configured advertising platform.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "insurance_expense",
+      "priority": 350,
+      "active": true,
+      "match": {
+        "description_contains_any": [
+          "hiscox business insurance"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "operating_expense",
+        "account_number": "6050",
+        "account_name": "Insurance Expense",
+        "confidence_score": "1.000",
+        "explanation": "The payment explicitly identifies business insurance.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "utilities",
+      "priority": 360,
+      "active": true,
+      "match": {
+        "description_contains_any": [
+          "con edison autopay",
+          "verizon business autopay"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "operating_expense",
+        "account_number": "6060",
+        "account_name": "Utilities",
+        "confidence_score": "0.990",
+        "explanation": "The payment is to a configured electricity, internet, or business-phone utility.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "professional_fees",
+      "priority": 370,
+      "active": true,
+      "match": {
+        "description_contains_any": [
+          "clearledger cpa"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "operating_expense",
+        "account_number": "6070",
+        "account_name": "Professional Fees",
+        "confidence_score": "1.000",
+        "explanation": "The payment is explicitly identified as a CPA professional service.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "bank_fees",
+      "priority": 380,
+      "active": true,
+      "match": {
+        "description_exact": [
+          "monthly service fee"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "operating_expense",
+        "account_number": "6080",
+        "account_name": "Bank Fees",
+        "confidence_score": "1.000",
+        "explanation": "The bank description explicitly identifies a monthly service fee.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "office_and_general",
+      "priority": 390,
+      "active": true,
+      "match": {
+        "description_contains_any": [
+          "staples",
+          "office supplies"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "operating_expense",
+        "account_number": "6090",
+        "account_name": "Office & General",
+        "confidence_score": "0.990",
+        "explanation": "The payment is explicitly identified as office supplies.",
+        "review_required": false
+      }
+    },
+    {
+      "id": "repairs_and_maintenance",
+      "priority": 400,
+      "active": true,
+      "match": {
+        "description_contains_any": [
+          "fleet auto care",
+          "service van"
+        ],
+        "direction": "outflow",
+        "bank_account": "Operating Checking",
+        "currency": "USD"
+      },
+      "outcome": {
+        "transaction_type": "operating_expense",
+        "account_number": "6100",
+        "account_name": "Repairs & Maintenance",
+        "confidence_score": "0.990",
+        "explanation": "The payment identifies repair or maintenance of a business service vehicle.",
+        "review_required": false
+      }
+    }
+  ]
+}

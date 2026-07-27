@@ -11,12 +11,25 @@ from bson.decimal128 import Decimal128
 
 from app.db.serialization import (
     MongoSerializationError,
+    classification_from_document,
+    classification_to_document,
     raw_record_from_document,
     raw_record_to_document,
     transaction_from_document,
     transaction_to_document,
     upload_from_document,
     upload_to_document,
+)
+from app.models.classification import (
+    ClassificationCorrection,
+    ClassificationDecision,
+    ClassificationSource,
+    Counterparty,
+    QuickBooksAccountMapping,
+    ReviewerMetadata,
+    ReviewStatus,
+    TransactionClassification,
+    TransactionType,
 )
 from app.models.ingestion import (
     ColumnMapping,
@@ -39,6 +52,81 @@ def assert_bson_encodable(document: dict[str, object]) -> None:
     """Prove that MongoDB's BSON encoder accepts a document."""
 
     BSON.encode(document, codec_options=CODEC_OPTIONS)
+
+
+def test_classification_round_trip_preserves_nested_accounting_values() -> None:
+    """Classification history remains exact through BSON conversion."""
+
+    transaction_id = uuid4()
+    reviewer = ReviewerMetadata(
+        reviewer_id="shishir",
+        reviewed_at=datetime(
+            2026,
+            7,
+            25,
+            18,
+            0,
+            tzinfo=UTC,
+        ),
+        notes="Reviewed against the source transaction.",
+    )
+    previous_decision = ClassificationDecision(
+        transaction_type=TransactionType.OPERATING_EXPENSE,
+        counterparty=Counterparty(
+            raw_name="BrightFix Fuel Stop",
+            normalized_name="BrightFix Fuel Stop",
+        ),
+        qbo_account=QuickBooksAccountMapping(
+            account_number="6090",
+            account_name="Office & General",
+        ),
+        confidence_score=Decimal("0.700"),
+        explanation="Gemini suggested a possible general expense.",
+        source=ClassificationSource.GEMINI,
+        review_required=True,
+    )
+    corrected_decision = ClassificationDecision(
+        transaction_type=TransactionType.OPERATING_EXPENSE,
+        counterparty=Counterparty(
+            raw_name="BrightFix Fuel Stop",
+            normalized_name="BrightFix Fuel Stop",
+        ),
+        qbo_account=QuickBooksAccountMapping(
+            account_number="6020",
+            account_name="Vehicle & Fuel",
+        ),
+        confidence_score=Decimal("1.000"),
+        explanation="A reviewer confirmed this payment was vehicle fuel.",
+        source=ClassificationSource.MANUAL_REVIEW,
+        review_required=False,
+    )
+    correction = ClassificationCorrection(
+        from_version=1,
+        to_version=2,
+        previous_decision=previous_decision,
+        corrected_decision=corrected_decision,
+        corrected_by=reviewer,
+        reason="Correct the expense account based on human review.",
+    )
+    classification = TransactionClassification(
+        normalized_transaction_id=transaction_id,
+        version=2,
+        decision=corrected_decision,
+        review_status=ReviewStatus.APPROVED,
+        reviewer=reviewer,
+        corrections=(correction,),
+    )
+
+    document = classification_to_document(classification)
+
+    assert document["_id"] == transaction_id
+    assert "normalized_transaction_id" not in document
+    assert document["decision"]["confidence_score"] == Decimal128("1.000")
+    assert document["corrections"][0]["previous_decision"]["confidence_score"] == Decimal128(
+        "0.700"
+    )
+    assert_bson_encodable(document)
+    assert classification_from_document(document) == classification
 
 
 def test_transaction_round_trip_preserves_decimal_and_dates() -> None:
