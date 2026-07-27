@@ -1,4 +1,4 @@
-"""Persist initial classifications produced by trusted matchers."""
+"""Persist initial classifications produced by trusted and optional AI matchers."""
 
 from __future__ import annotations
 
@@ -16,6 +16,11 @@ from app.models.classification_rule import (
     RuleIdentifier,
 )
 from app.models.ingestion import NormalizedTransaction
+from app.services.classification.gemini import (
+    GeminiClassifier,
+    build_gemini_decision,
+    build_gemini_request,
+)
 from app.services.classification.pattern_matching import (
     PatternLookup,
     match_learned_pattern,
@@ -53,8 +58,17 @@ class DeterministicRuleClassificationResult(ImmutableAccountingModel):
     classification: TransactionClassification
 
 
+class GeminiClassificationResult(ImmutableAccountingModel):
+    """Persisted classification produced by validated Gemini output."""
+
+    inserted: bool
+    classification: TransactionClassification
+
+
 InitialClassificationResult = (
-    LearnedPatternClassificationResult | DeterministicRuleClassificationResult
+    LearnedPatternClassificationResult
+    | DeterministicRuleClassificationResult
+    | GeminiClassificationResult
 )
 
 
@@ -65,8 +79,9 @@ async def classify_initial(
     rule_set: DeterministicRuleSet,
     classification_writer: InitialClassificationWriter,
     chart_of_accounts: ChartOfAccountsConfig,
+    gemini_classifier: GeminiClassifier | None = None,
 ) -> InitialClassificationResult | None:
-    """Classify once using approved corrections before general rules."""
+    """Classify once using approved corrections, rules, then optional Gemini."""
 
     pattern_match = await match_learned_pattern(
         transaction=transaction,
@@ -94,19 +109,42 @@ async def classify_initial(
         chart_of_accounts=chart_of_accounts,
     )
 
-    if rule_match is None:
+    if rule_match is not None:
+        inserted, classification = await _persist_initial_decision(
+            transaction=transaction,
+            decision=rule_match.decision,
+            classification_writer=classification_writer,
+        )
+
+        return DeterministicRuleClassificationResult(
+            inserted=inserted,
+            rule_id=rule_match.rule_id,
+            priority=rule_match.priority,
+            classification=classification,
+        )
+
+    if gemini_classifier is None:
         return None
+
+    request = build_gemini_request(
+        transaction=transaction,
+        chart_of_accounts=chart_of_accounts,
+    )
+    response = await gemini_classifier.classify(request)
+    decision = build_gemini_decision(
+        transaction=transaction,
+        response=response,
+        chart_of_accounts=chart_of_accounts,
+    )
 
     inserted, classification = await _persist_initial_decision(
         transaction=transaction,
-        decision=rule_match.decision,
+        decision=decision,
         classification_writer=classification_writer,
     )
 
-    return DeterministicRuleClassificationResult(
+    return GeminiClassificationResult(
         inserted=inserted,
-        rule_id=rule_match.rule_id,
-        priority=rule_match.priority,
         classification=classification,
     )
 
