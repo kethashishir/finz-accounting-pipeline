@@ -192,6 +192,40 @@ class QuickBooksApiClient:
         except ValidationError as exc:
             raise QuickBooksApiResponseError("QuickBooks returned an invalid account") from exc
 
+    async def get_profit_and_loss_report(
+        self,
+        *,
+        access_token: SecretStr,
+        realm_id: str,
+        start_date: date,
+        end_date: date,
+        account_ids: tuple[str, ...],
+    ) -> dict[str, object]:
+        """Retrieve a scoped cash-basis QBO Profit and Loss report."""
+
+        if start_date > end_date:
+            raise ValueError("QuickBooks report start date cannot be after its end date")
+
+        normalized_account_ids = tuple(account_id.strip() for account_id in account_ids)
+
+        if not normalized_account_ids or any(
+            not account_id or "," in account_id for account_id in normalized_account_ids
+        ):
+            raise ValueError("QuickBooks report account IDs are invalid")
+
+        return await self._get(
+            path="reports/ProfitAndLoss",
+            access_token=access_token,
+            realm_id=realm_id,
+            params={
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "accounting_method": "Cash",
+                "summarize_column_by": "Total",
+                "account": ",".join(normalized_account_ids),
+            },
+        )
+
     async def create_account(
         self,
         *,
