@@ -19,6 +19,8 @@ from pydantic import (
     model_validator,
 )
 
+from app.models.quickbooks import QuickBooksEnvironment
+
 CENT = Decimal("0.01")
 ZERO = Decimal("0.00")
 
@@ -44,6 +46,16 @@ AccountNumber = Annotated[
     StringConstraints(
         strip_whitespace=True,
         pattern=r"^\d{4}$",
+    ),
+]
+
+QuickBooksRealmId = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[0-9]+$",
     ),
 ]
 
@@ -243,6 +255,8 @@ class QuickBooksSyncRecord(ImmutableSyncModel):
     """Persistent state for one idempotent QBO posting plan."""
 
     id: UUID = Field(default_factory=uuid4)
+    environment: QuickBooksEnvironment
+    realm_id: QuickBooksRealmId
     plan: QuickBooksJournalEntryPlan
     status: QuickBooksSyncStatus = QuickBooksSyncStatus.PENDING
     attempt_count: int = Field(default=0, ge=0)

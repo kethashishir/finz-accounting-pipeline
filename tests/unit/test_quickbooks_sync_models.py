@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import ValidationError
 
+from app.models.quickbooks import QuickBooksEnvironment
 from app.models.quickbooks_sync import (
     QuickBooksJournalEntryPlan,
     QuickBooksJournalLine,
@@ -17,6 +18,8 @@ from app.models.quickbooks_sync import (
     QuickBooksSyncStatus,
     build_quickbooks_request_id,
 )
+
+REALM_ID = "9341456789012345"
 
 SOURCE_ID = UUID("11111111-1111-4111-8111-111111111111")
 SECOND_SOURCE_ID = UUID("22222222-2222-4222-8222-222222222222")
@@ -240,6 +243,8 @@ def test_pending_record_has_no_attempt_or_qbo_result() -> None:
     """A newly planned posting has not contacted QuickBooks."""
 
     record = QuickBooksSyncRecord(
+        environment=QuickBooksEnvironment.SANDBOX,
+        realm_id=REALM_ID,
         plan=plan(),
         created_at=NOW,
         updated_at=NOW,
@@ -259,6 +264,8 @@ def test_success_requires_qbo_identity() -> None:
         match="transaction ID and sync token",
     ):
         QuickBooksSyncRecord(
+            environment=QuickBooksEnvironment.SANDBOX,
+            realm_id=REALM_ID,
             plan=plan(),
             status=QuickBooksSyncStatus.SUCCEEDED,
             attempt_count=1,
@@ -271,6 +278,8 @@ def test_retryable_error_and_success_states_are_valid() -> None:
     """Retryable failures remain safe and success clears errors."""
 
     retryable = QuickBooksSyncRecord(
+        environment=QuickBooksEnvironment.SANDBOX,
+        realm_id=REALM_ID,
         plan=plan(),
         status=QuickBooksSyncStatus.RETRYABLE_ERROR,
         attempt_count=1,
@@ -285,6 +294,8 @@ def test_retryable_error_and_success_states_are_valid() -> None:
     )
 
     succeeded = QuickBooksSyncRecord(
+        environment=QuickBooksEnvironment.SANDBOX,
+        realm_id=REALM_ID,
         id=uuid4(),
         plan=plan(),
         status=QuickBooksSyncStatus.SUCCEEDED,
