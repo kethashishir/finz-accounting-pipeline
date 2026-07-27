@@ -286,3 +286,23 @@ class QuickBooksConnectionRecord(EncryptedQuickBooksTokenSet):
             raise ValueError("QuickBooks connection cannot store tokens before they are issued")
 
         return self
+
+
+class QuickBooksConnectionStatus(BaseModel):
+    """Secret-free result of connecting one QBO company."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    status: Literal["connected"] = "connected"
+    environment: QuickBooksEnvironment
+    realm_id: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[0-9]+$",
+    )
+    revision: int = Field(ge=1)
+    access_token_expires_at: datetime
+    refresh_token_expires_at: datetime
