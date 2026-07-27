@@ -157,3 +157,82 @@ class QuickBooksOAuthStateRecord(QuickBooksAuthorizationState):
             raise ValueError("QuickBooks OAuth state cannot be consumed after it expires")
 
         return self
+
+
+class QuickBooksTokenSet(BaseModel):
+    """Plaintext QBO tokens held only at trusted service boundaries."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    environment: QuickBooksEnvironment
+    realm_id: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[0-9]+$",
+    )
+    token_type: Literal["bearer"] = "bearer"
+    access_token: SecretStr
+    refresh_token: SecretStr
+    issued_at: datetime
+    access_token_expires_at: datetime
+    refresh_token_expires_at: datetime
+
+    @model_validator(mode="after")
+    def validate_token_lifetimes(
+        self,
+    ) -> QuickBooksTokenSet:
+        """Require timezone-aware, ordered token lifetimes."""
+
+        timestamps = (
+            self.issued_at,
+            self.access_token_expires_at,
+            self.refresh_token_expires_at,
+        )
+
+        if any(value.utcoffset() is None for value in timestamps):
+            raise ValueError("QuickBooks token timestamps must be timezone-aware")
+
+        if self.access_token_expires_at <= self.issued_at:
+            raise ValueError("QuickBooks access token must expire after it is issued")
+
+        if self.refresh_token_expires_at <= self.access_token_expires_at:
+            raise ValueError("QuickBooks refresh token must expire after the access token")
+
+        return self
+
+
+class EncryptedQuickBooksTokenSet(BaseModel):
+    """Encrypted QBO token material safe for persistence."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    version: Literal[1] = 1
+    environment: QuickBooksEnvironment
+    realm_id: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[0-9]+$",
+    )
+    token_type: Literal["bearer"] = "bearer"
+    access_token_ciphertext: str = Field(
+        min_length=1,
+        max_length=16384,
+    )
+    refresh_token_ciphertext: str = Field(
+        min_length=1,
+        max_length=16384,
+    )
+    key_fingerprint: str = Field(
+        min_length=16,
+        max_length=16,
+        pattern=r"^[0-9a-f]{16}$",
+    )
+    issued_at: datetime
+    access_token_expires_at: datetime
+    refresh_token_expires_at: datetime
