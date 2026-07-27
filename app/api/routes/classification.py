@@ -21,6 +21,7 @@ from app.models.classification_api import (
     ClassificationCorrectionCommand,
     ClassificationReviewCommand,
 )
+from app.models.classification_rule import DeterministicRuleSet
 from app.models.review import ReviewQueueItem
 from app.repositories.classification import (
     ClassificationNotFoundError,
@@ -31,12 +32,20 @@ from app.repositories.classification import (
     StaleClassificationVersionError,
     UnsafeClassificationTransactionError,
 )
+from app.repositories.classification_pattern import (
+    ClassificationPatternRepository,
+)
 from app.repositories.ingestion import IngestionRepository
+from app.services.classification.batch_classification import (
+    BatchClassificationSummary,
+    classify_upload,
+)
 from app.services.classification.correction_actions import (
     ClassificationCorrectionResult,
     InvalidManualCorrectionError,
     correct_classification,
 )
+from app.services.classification.gemini import GeminiClassifier
 from app.services.classification.review_actions import (
     ClassificationReviewResult,
     finalize_classification_review,
@@ -257,3 +266,74 @@ async def correct_classification_endpoint(
     )
 
     return result
+
+
+@router.post(
+    "/uploads/{upload_id}/classify",
+    response_model=BatchClassificationSummary,
+    responses={
+        status.HTTP_404_NOT_FOUND: {"description": "Upload was not found"},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "MongoDB is unavailable"},
+    },
+)
+async def classify_upload_endpoint(
+    upload_id: UUID,
+    request: Request,
+) -> BatchClassificationSummary:
+    """Classify every canonical transaction in one upload."""
+
+    ingestion_repository: IngestionRepository = request.app.state.ingestion_repository
+    classification_repository: ClassificationRepository = (
+        request.app.state.classification_repository
+    )
+    pattern_repository: ClassificationPatternRepository = (
+        request.app.state.classification_pattern_repository
+    )
+    rule_set: DeterministicRuleSet = request.app.state.classification_rule_set
+    chart_of_accounts: ChartOfAccountsConfig = request.app.state.chart_of_accounts
+    gemini_classifier: GeminiClassifier | None = request.app.state.gemini_classifier
+
+    try:
+        upload = await ingestion_repository.find_upload_by_id(upload_id)
+
+        if upload is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "upload_not_found",
+                    "message": (f"Upload {upload_id} was not found"),
+                },
+            )
+
+        summary = await classify_upload(
+            upload_id=upload_id,
+            transaction_reader=ingestion_repository,
+            classification_repository=(classification_repository),
+            pattern_lookup=pattern_repository,
+            rule_set=rule_set,
+            chart_of_accounts=chart_of_accounts,
+            gemini_classifier=gemini_classifier,
+        )
+    except HTTPException:
+        raise
+    except PyMongoError as exc:
+        logger.exception(
+            "batch_classification_database_failure",
+            upload_id=str(upload_id),
+        )
+        raise _database_unavailable() from exc
+
+    logger.info(
+        "upload_classified",
+        upload_id=str(upload_id),
+        total_records=summary.total_records,
+        canonical_transactions=(summary.canonical_transactions),
+        already_classified=summary.already_classified,
+        classified_by_learned_pattern=(summary.classified_by_learned_pattern),
+        classified_by_deterministic_rule=(summary.classified_by_deterministic_rule),
+        classified_by_gemini=(summary.classified_by_gemini),
+        manual_review_required=(summary.manual_review_required),
+        failed=summary.failed,
+    )
+
+    return summary
