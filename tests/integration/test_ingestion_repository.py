@@ -242,3 +242,33 @@ async def test_find_transaction_by_id_returns_none_when_missing(
     found = await repository.find_transaction_by_id(uuid4())
 
     assert found is None
+
+
+@pytest.mark.asyncio
+async def test_find_upload_by_id_returns_stored_upload(
+    repository: IngestionRepository,
+) -> None:
+    """A persisted upload can be retrieved by its UUID."""
+
+    upload, raw_record, transaction = create_batch()
+
+    await repository.save_batch(
+        upload=upload,
+        raw_records=[raw_record],
+        transactions=[transaction],
+    )
+
+    found = await repository.find_upload_by_id(upload.id)
+
+    assert found == upload
+
+
+@pytest.mark.asyncio
+async def test_find_upload_by_id_returns_none_when_missing(
+    repository: IngestionRepository,
+) -> None:
+    """An unknown UUID does not produce a fabricated upload."""
+
+    found = await repository.find_upload_by_id(uuid4())
+
+    assert found is None
