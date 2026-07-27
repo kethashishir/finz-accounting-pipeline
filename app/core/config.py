@@ -23,6 +23,16 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     gemini_model: str | None = None
 
+    qbo_environment: Literal[
+        "sandbox",
+        "production",
+    ] = "sandbox"
+    qbo_client_id: str | None = None
+    qbo_client_secret: SecretStr | None = None
+    qbo_redirect_uri: str | None = None
+    token_encryption_key: SecretStr | None = None
+    session_secret: SecretStr | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -33,14 +43,19 @@ class Settings(BaseSettings):
     @field_validator(
         "gemini_api_key",
         "gemini_model",
+        "qbo_client_id",
+        "qbo_client_secret",
+        "qbo_redirect_uri",
+        "token_encryption_key",
+        "session_secret",
         mode="before",
     )
     @classmethod
-    def normalize_optional_gemini_settings(
+    def normalize_optional_settings(
         cls,
         value: object,
     ) -> object:
-        """Convert blank Gemini settings to disabled values."""
+        """Convert blank optional integration settings to None."""
 
         if isinstance(value, str):
             normalized = value.strip()
