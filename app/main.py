@@ -6,6 +6,7 @@ from pathlib import Path
 
 import structlog
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.api.router import api_router
@@ -34,6 +35,8 @@ from app.services.classification.gemini_adapter import (
 from app.services.classification.rule_config import (
     load_deterministic_rule_set,
 )
+from app.ui.router import STATIC_DIR
+from app.ui.router import router as ui_router
 
 logger = structlog.get_logger(__name__)
 
@@ -140,6 +143,12 @@ def create_app(
 
     application.state.settings = app_settings
     application.include_router(api_router)
+    application.include_router(ui_router)
+    application.mount(
+        "/static",
+        StaticFiles(directory=str(STATIC_DIR)),
+        name="static",
+    )
 
     return application
 
