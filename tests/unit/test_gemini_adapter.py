@@ -209,10 +209,13 @@ async def test_adapter_requests_strict_structured_output() -> None:
     config = call["config"]
 
     assert config is not None
-    assert config.temperature == 0
+    assert config.temperature is None
     assert config.candidate_count == 1
     assert config.response_mime_type == "application/json"
-    assert config.response_schema is GeminiClassificationResponse
+    assert config.response_schema is None
+    assert config.response_json_schema == (
+        GeminiClassificationResponse.model_json_schema(mode="validation")
+    )
 
 
 @pytest.mark.asyncio

@@ -108,10 +108,11 @@ class GoogleGeminiClassifier(GeminiClassifier):
 
         config = types.GenerateContentConfig(
             system_instruction=_SYSTEM_INSTRUCTION,
-            temperature=0,
             candidate_count=1,
             response_mime_type="application/json",
-            response_schema=GeminiClassificationResponse,
+            response_json_schema=(
+                GeminiClassificationResponse.model_json_schema(mode="validation")
+            ),
         )
 
         try:
