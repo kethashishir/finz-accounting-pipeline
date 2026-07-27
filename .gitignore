@@ -33,9 +33,7 @@ tokens/
 # Application runtime files
 logs/
 uploads/*
-!uploads/.gitkeep
 data/raw/*
-!data/raw/.gitkeep
 
 # Supplied or exported financial source files
 *.xlsx
