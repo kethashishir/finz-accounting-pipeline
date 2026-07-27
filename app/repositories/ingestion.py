@@ -266,6 +266,23 @@ class IngestionRepository:
         transactions = [transaction_from_document(document) async for document in cursor]
         return tuple(transactions)
 
+    async def find_transaction_by_id(
+        self,
+        normalized_transaction_id: UUID,
+    ) -> NormalizedTransaction | None:
+        """Return one normalized transaction by UUID."""
+
+        document = await self.transactions.find_one(
+            {
+                "_id": normalized_transaction_id,
+            }
+        )
+
+        if document is None:
+            return None
+
+        return transaction_from_document(document)
+
     async def transactions_for_upload(
         self,
         upload_id: UUID,
