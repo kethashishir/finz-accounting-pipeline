@@ -31,6 +31,7 @@ from app.services.quickbooks.api_client import (
 from app.services.quickbooks.posting_plans import (
     QuickBooksPostingPlanError,
     build_single_transaction_posting_plan,
+    build_transfer_posting_plan,
 )
 
 REVIEWED_AT = datetime(
@@ -485,5 +486,311 @@ def test_stale_stored_qbo_account_id_is_rejected() -> None:
                 account_number="4000",
                 qbo_account_id="stale-qbo-id",
             ),
+            qbo_accounts=qbo_accounts(),
+        )
+
+
+def transfer_pair():
+    """Create reciprocal transfer rows and classifications."""
+
+    outflow = transaction(
+        amount=Decimal("-1000.00"),
+        bank_account="Operating Checking",
+    )
+    inflow = transaction(
+        amount=Decimal("1000.00"),
+        bank_account="Tax Reserve",
+    )
+    outflow_classification = classification(
+        outflow,
+        transaction_type=TransactionType.TRANSFER,
+        account_number="1010",
+    )
+    inflow_classification = classification(
+        inflow,
+        transaction_type=TransactionType.TRANSFER,
+        account_number="1000",
+    )
+
+    return (
+        outflow,
+        outflow_classification,
+        inflow,
+        inflow_classification,
+    )
+
+
+def test_transfer_builds_one_bank_to_bank_entry() -> None:
+    """Two transfer rows create one P&L-neutral JournalEntry."""
+
+    (
+        outflow,
+        outflow_classification,
+        inflow,
+        inflow_classification,
+    ) = transfer_pair()
+
+    posting_plan = build_transfer_posting_plan(
+        first_transaction=outflow,
+        first_classification=outflow_classification,
+        second_transaction=inflow,
+        second_classification=inflow_classification,
+        qbo_accounts=qbo_accounts(),
+    )
+
+    assert len(posting_plan.sources) == 2
+    assert {source.normalized_transaction_id for source in posting_plan.sources} == {
+        outflow.id,
+        inflow.id,
+    }
+
+    debit, credit = posting_plan.lines
+
+    assert debit.posting_type is (QuickBooksPostingType.DEBIT)
+    assert debit.account_number == "1010"
+    assert debit.amount == Decimal("1000.00")
+
+    assert credit.posting_type is (QuickBooksPostingType.CREDIT)
+    assert credit.account_number == "1000"
+    assert credit.amount == Decimal("1000.00")
+
+
+def test_transfer_plan_is_independent_of_argument_order() -> None:
+    """Reversing transfer inputs preserves one immutable plan."""
+
+    (
+        outflow,
+        outflow_classification,
+        inflow,
+        inflow_classification,
+    ) = transfer_pair()
+
+    forward = build_transfer_posting_plan(
+        first_transaction=outflow,
+        first_classification=outflow_classification,
+        second_transaction=inflow,
+        second_classification=inflow_classification,
+        qbo_accounts=qbo_accounts(),
+    )
+    reversed_plan = build_transfer_posting_plan(
+        first_transaction=inflow,
+        first_classification=inflow_classification,
+        second_transaction=outflow,
+        second_classification=outflow_classification,
+        qbo_accounts=qbo_accounts(),
+    )
+
+    assert reversed_plan == forward
+
+
+def test_transfer_rejects_mismatched_amounts() -> None:
+    """Unequal bank movements cannot be treated as one transfer."""
+
+    (
+        outflow,
+        outflow_classification,
+        inflow,
+        inflow_classification,
+    ) = transfer_pair()
+    inflow = inflow.model_copy(
+        update={
+            "amount": Decimal("999.99"),
+        }
+    )
+    inflow_classification = classification(
+        inflow,
+        transaction_type=TransactionType.TRANSFER,
+        account_number="1000",
+    )
+
+    with pytest.raises(
+        QuickBooksPostingPlanError,
+        match="equal absolute amounts",
+    ):
+        build_transfer_posting_plan(
+            first_transaction=outflow,
+            first_classification=outflow_classification,
+            second_transaction=inflow,
+            second_classification=inflow_classification,
+            qbo_accounts=qbo_accounts(),
+        )
+
+
+def test_transfer_rejects_same_direction() -> None:
+    """A transfer cannot contain two withdrawals."""
+
+    (
+        outflow,
+        outflow_classification,
+        _,
+        _,
+    ) = transfer_pair()
+    second_outflow = transaction(
+        amount=Decimal("-1000.00"),
+        bank_account="Tax Reserve",
+    )
+    second_classification = classification(
+        second_outflow,
+        transaction_type=TransactionType.TRANSFER,
+        account_number="1000",
+    )
+
+    with pytest.raises(
+        QuickBooksPostingPlanError,
+        match="one inflow and one outflow",
+    ):
+        build_transfer_posting_plan(
+            first_transaction=outflow,
+            first_classification=outflow_classification,
+            second_transaction=second_outflow,
+            second_classification=second_classification,
+            qbo_accounts=qbo_accounts(),
+        )
+
+
+def test_transfer_rejects_same_bank_account() -> None:
+    """Both sides cannot resolve to the same QBO bank."""
+
+    (
+        outflow,
+        outflow_classification,
+        inflow,
+        _,
+    ) = transfer_pair()
+    inflow = inflow.model_copy(
+        update={
+            "bank_account": "Operating Checking",
+        }
+    )
+    inflow_classification = classification(
+        inflow,
+        transaction_type=TransactionType.TRANSFER,
+        account_number="1000",
+    )
+
+    with pytest.raises(
+        QuickBooksPostingPlanError,
+        match="different QuickBooks bank accounts",
+    ):
+        build_transfer_posting_plan(
+            first_transaction=outflow,
+            first_classification=outflow_classification,
+            second_transaction=inflow,
+            second_classification=inflow_classification,
+            qbo_accounts=qbo_accounts(),
+        )
+
+
+def test_transfer_rejects_nonreciprocal_mapping() -> None:
+    """The outflow must classify to the destination bank."""
+
+    (
+        outflow,
+        _,
+        inflow,
+        inflow_classification,
+    ) = transfer_pair()
+    wrong_outflow_classification = classification(
+        outflow,
+        transaction_type=TransactionType.TRANSFER,
+        account_number="1000",
+    )
+
+    with pytest.raises(
+        QuickBooksPostingPlanError,
+        match="outflow must map",
+    ):
+        build_transfer_posting_plan(
+            first_transaction=outflow,
+            first_classification=(wrong_outflow_classification),
+            second_transaction=inflow,
+            second_classification=inflow_classification,
+            qbo_accounts=qbo_accounts(),
+        )
+
+
+def test_transfer_rejects_different_dates_or_currencies() -> None:
+    """A strict pair cannot bridge unresolved date or FX differences."""
+
+    (
+        outflow,
+        outflow_classification,
+        inflow,
+        inflow_classification,
+    ) = transfer_pair()
+    later_inflow = inflow.model_copy(
+        update={
+            "transaction_date": date(2026, 4, 2),
+        }
+    )
+    later_classification = classification(
+        later_inflow,
+        transaction_type=TransactionType.TRANSFER,
+        account_number="1000",
+    )
+
+    with pytest.raises(
+        QuickBooksPostingPlanError,
+        match="same transaction date",
+    ):
+        build_transfer_posting_plan(
+            first_transaction=outflow,
+            first_classification=outflow_classification,
+            second_transaction=later_inflow,
+            second_classification=later_classification,
+            qbo_accounts=qbo_accounts(),
+        )
+
+    foreign_inflow = inflow.model_copy(
+        update={
+            "currency": "EUR",
+        }
+    )
+    foreign_classification = classification(
+        foreign_inflow,
+        transaction_type=TransactionType.TRANSFER,
+        account_number="1000",
+    )
+
+    with pytest.raises(
+        QuickBooksPostingPlanError,
+        match="same currency",
+    ):
+        build_transfer_posting_plan(
+            first_transaction=outflow,
+            first_classification=outflow_classification,
+            second_transaction=foreign_inflow,
+            second_classification=foreign_classification,
+            qbo_accounts=qbo_accounts(),
+        )
+
+
+def test_transfer_requires_both_sides_to_be_sync_eligible() -> None:
+    """One unapproved transfer side blocks the entire posting."""
+
+    (
+        outflow,
+        outflow_classification,
+        inflow,
+        _,
+    ) = transfer_pair()
+    pending_inflow = classification(
+        inflow,
+        transaction_type=TransactionType.TRANSFER,
+        account_number="1000",
+        source=ClassificationSource.GEMINI,
+        review_status=ReviewStatus.PENDING,
+        review_required=True,
+    )
+
+    with pytest.raises(
+        QuickBooksPostingPlanError,
+        match="requires explicit approval",
+    ):
+        build_transfer_posting_plan(
+            first_transaction=outflow,
+            first_classification=outflow_classification,
+            second_transaction=inflow,
+            second_classification=pending_inflow,
             qbo_accounts=qbo_accounts(),
         )

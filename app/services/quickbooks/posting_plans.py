@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 from app.models.classification import (
@@ -163,6 +164,202 @@ def build_single_transaction_posting_plan(
             f"classification v{classification.version}"
         ),
         lines=lines,
+    )
+
+
+def build_transfer_posting_plan(
+    *,
+    first_transaction: NormalizedTransaction,
+    first_classification: TransactionClassification,
+    second_transaction: NormalizedTransaction,
+    second_classification: TransactionClassification,
+    qbo_accounts: tuple[QuickBooksApiAccount, ...],
+) -> QuickBooksJournalEntryPlan:
+    """Build one JournalEntry from two sides of a bank transfer."""
+
+    pairs = (
+        (
+            first_transaction,
+            first_classification,
+        ),
+        (
+            second_transaction,
+            second_classification,
+        ),
+    )
+
+    if first_transaction.id == second_transaction.id:
+        raise QuickBooksPostingPlanError(
+            "A transfer requires two different normalized transactions"
+        )
+
+    for transaction, classification in pairs:
+        _validate_source_transaction(transaction)
+        _validate_classification_identity(
+            transaction=transaction,
+            classification=classification,
+        )
+        _require_sync_eligible(classification)
+
+        if classification.decision.transaction_type is not TransactionType.TRANSFER:
+            raise QuickBooksPostingPlanError(
+                "Both transfer classifications must use the transfer transaction type"
+            )
+
+    first_fields = _require_transfer_fields(first_transaction)
+    second_fields = _require_transfer_fields(second_transaction)
+
+    (
+        first_amount,
+        first_currency,
+        first_bank_name,
+        first_date,
+        first_direction,
+    ) = first_fields
+    (
+        second_amount,
+        second_currency,
+        second_bank_name,
+        second_date,
+        second_direction,
+    ) = second_fields
+
+    if first_direction is second_direction:
+        raise QuickBooksPostingPlanError("A transfer requires one inflow and one outflow")
+
+    if first_amount != second_amount:
+        raise QuickBooksPostingPlanError("Transfer sides must have equal absolute amounts")
+
+    if first_currency != second_currency:
+        raise QuickBooksPostingPlanError("Transfer sides must use the same currency")
+
+    if first_date != second_date:
+        raise QuickBooksPostingPlanError("Transfer sides must use the same transaction date")
+
+    if first_direction is TransactionDirection.OUTFLOW:
+        outflow_transaction = first_transaction
+        outflow_classification = first_classification
+        outflow_bank_name = first_bank_name
+        inflow_transaction = second_transaction
+        inflow_classification = second_classification
+        inflow_bank_name = second_bank_name
+    else:
+        outflow_transaction = second_transaction
+        outflow_classification = second_classification
+        outflow_bank_name = second_bank_name
+        inflow_transaction = first_transaction
+        inflow_classification = first_classification
+        inflow_bank_name = first_bank_name
+
+    source_bank = _require_source_bank_account(
+        qbo_accounts,
+        bank_account_name=outflow_bank_name,
+    )
+    destination_bank = _require_source_bank_account(
+        qbo_accounts,
+        bank_account_name=inflow_bank_name,
+    )
+
+    if source_bank.id == destination_bank.id:
+        raise QuickBooksPostingPlanError(
+            "A transfer must move funds between different QuickBooks bank accounts"
+        )
+
+    outflow_target = _require_target_account(
+        qbo_accounts,
+        classification=outflow_classification,
+    )
+    inflow_target = _require_target_account(
+        qbo_accounts,
+        classification=inflow_classification,
+    )
+
+    if outflow_target.id != destination_bank.id:
+        raise QuickBooksPostingPlanError(
+            "The transfer outflow must map to the destination bank account"
+        )
+
+    if inflow_target.id != source_bank.id:
+        raise QuickBooksPostingPlanError("The transfer inflow must map to the source bank account")
+
+    description = f"Transfer from {source_bank.name} to {destination_bank.name}"
+    source_references = tuple(
+        sorted(
+            (
+                QuickBooksSourceReference(
+                    normalized_transaction_id=(first_transaction.id),
+                    classification_version=(first_classification.version),
+                    source_transaction_id=(first_transaction.source_transaction_id),
+                ),
+                QuickBooksSourceReference(
+                    normalized_transaction_id=(second_transaction.id),
+                    classification_version=(second_classification.version),
+                    source_transaction_id=(second_transaction.source_transaction_id),
+                ),
+            ),
+            key=lambda source: str(source.normalized_transaction_id),
+        )
+    )
+    request_id = build_quickbooks_request_id(
+        tuple(source.normalized_transaction_id for source in source_references)
+    )
+    outflow_label = outflow_transaction.source_transaction_id or str(outflow_transaction.id)
+    inflow_label = inflow_transaction.source_transaction_id or str(inflow_transaction.id)
+
+    return QuickBooksJournalEntryPlan(
+        request_id=request_id,
+        sources=source_references,
+        transaction_date=first_date,
+        currency=first_currency,
+        private_note=(f"Finz transfer {outflow_label} to {inflow_label}"),
+        lines=(
+            _journal_line(
+                account=destination_bank,
+                posting_type=(QuickBooksPostingType.DEBIT),
+                amount=first_amount,
+                description=description,
+            ),
+            _journal_line(
+                account=source_bank,
+                posting_type=(QuickBooksPostingType.CREDIT),
+                amount=first_amount,
+                description=description,
+            ),
+        ),
+    )
+
+
+def _require_transfer_fields(
+    transaction: NormalizedTransaction,
+) -> tuple[
+    Decimal,
+    str,
+    str,
+    date,
+    TransactionDirection,
+]:
+    """Return complete normalized fields for one transfer side."""
+
+    if (
+        transaction.amount is None
+        or transaction.currency is None
+        or transaction.bank_account is None
+        or transaction.transaction_date is None
+        or transaction.direction is None
+    ):
+        raise QuickBooksPostingPlanError("Transfer side lacks complete normalized fields")
+
+    amount = abs(transaction.amount)
+
+    if amount == ZERO:
+        raise QuickBooksPostingPlanError("A zero-value transfer cannot be posted")
+
+    return (
+        amount,
+        transaction.currency,
+        transaction.bank_account,
+        transaction.transaction_date,
+        transaction.direction,
     )
 
 
