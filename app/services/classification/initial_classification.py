@@ -7,6 +7,7 @@ from uuid import UUID
 
 from app.models.accounting import ChartOfAccountsConfig
 from app.models.classification import (
+    ClassificationDecision,
     ImmutableAccountingModel,
     TransactionClassification,
 )
@@ -52,6 +53,64 @@ class DeterministicRuleClassificationResult(ImmutableAccountingModel):
     classification: TransactionClassification
 
 
+InitialClassificationResult = (
+    LearnedPatternClassificationResult | DeterministicRuleClassificationResult
+)
+
+
+async def classify_initial(
+    *,
+    transaction: NormalizedTransaction,
+    pattern_lookup: PatternLookup,
+    rule_set: DeterministicRuleSet,
+    classification_writer: InitialClassificationWriter,
+    chart_of_accounts: ChartOfAccountsConfig,
+) -> InitialClassificationResult | None:
+    """Classify once using approved corrections before general rules."""
+
+    pattern_match = await match_learned_pattern(
+        transaction=transaction,
+        pattern_lookup=pattern_lookup,
+        chart_of_accounts=chart_of_accounts,
+    )
+
+    if pattern_match is not None:
+        inserted, classification = await _persist_initial_decision(
+            transaction=transaction,
+            decision=pattern_match.decision,
+            classification_writer=classification_writer,
+        )
+
+        return LearnedPatternClassificationResult(
+            inserted=inserted,
+            pattern_id=pattern_match.pattern_id,
+            source_transaction_id=pattern_match.source_transaction_id,
+            classification=classification,
+        )
+
+    rule_match = match_deterministic_rule(
+        transaction=transaction,
+        rule_set=rule_set,
+        chart_of_accounts=chart_of_accounts,
+    )
+
+    if rule_match is None:
+        return None
+
+    inserted, classification = await _persist_initial_decision(
+        transaction=transaction,
+        decision=rule_match.decision,
+        classification_writer=classification_writer,
+    )
+
+    return DeterministicRuleClassificationResult(
+        inserted=inserted,
+        rule_id=rule_match.rule_id,
+        priority=rule_match.priority,
+        classification=classification,
+    )
+
+
 async def classify_from_learned_pattern(
     *,
     transaction: NormalizedTransaction,
@@ -70,12 +129,11 @@ async def classify_from_learned_pattern(
     if match is None:
         return None
 
-    classification = TransactionClassification(
-        normalized_transaction_id=transaction.id,
+    inserted, classification = await _persist_initial_decision(
+        transaction=transaction,
         decision=match.decision,
+        classification_writer=classification_writer,
     )
-
-    inserted = await classification_writer.save_initial(classification)
 
     return LearnedPatternClassificationResult(
         inserted=inserted,
@@ -103,12 +161,11 @@ async def classify_from_deterministic_rule(
     if match is None:
         return None
 
-    classification = TransactionClassification(
-        normalized_transaction_id=transaction.id,
+    inserted, classification = await _persist_initial_decision(
+        transaction=transaction,
         decision=match.decision,
+        classification_writer=classification_writer,
     )
-
-    inserted = await classification_writer.save_initial(classification)
 
     return DeterministicRuleClassificationResult(
         inserted=inserted,
@@ -116,3 +173,21 @@ async def classify_from_deterministic_rule(
         priority=match.priority,
         classification=classification,
     )
+
+
+async def _persist_initial_decision(
+    *,
+    transaction: NormalizedTransaction,
+    decision: ClassificationDecision,
+    classification_writer: InitialClassificationWriter,
+) -> tuple[bool, TransactionClassification]:
+    """Construct and save exactly one version-one classification."""
+
+    classification = TransactionClassification(
+        normalized_transaction_id=transaction.id,
+        decision=decision,
+    )
+
+    inserted = await classification_writer.save_initial(classification)
+
+    return inserted, classification
