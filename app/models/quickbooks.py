@@ -131,3 +131,29 @@ class QuickBooksAuthorizationRequest(BaseModel):
         max_length=4096,
     )
     expires_at: datetime
+
+
+class QuickBooksOAuthStateRecord(QuickBooksAuthorizationState):
+    """Persisted single-use QuickBooks OAuth state."""
+
+    consumed_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_consumption_time(
+        self,
+    ) -> QuickBooksOAuthStateRecord:
+        """Require a valid callback-consumption timestamp."""
+
+        if self.consumed_at is None:
+            return self
+
+        if self.consumed_at.utcoffset() is None:
+            raise ValueError("QuickBooks OAuth state consumption timestamp must be timezone-aware")
+
+        if self.consumed_at < self.issued_at:
+            raise ValueError("QuickBooks OAuth state cannot be consumed before it is issued")
+
+        if self.consumed_at >= self.expires_at:
+            raise ValueError("QuickBooks OAuth state cannot be consumed after it expires")
+
+        return self

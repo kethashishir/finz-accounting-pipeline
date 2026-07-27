@@ -183,7 +183,9 @@ def _normalized_now(
     if timestamp.utcoffset() is None:
         raise QuickBooksOAuthStateError("QuickBooks OAuth timestamps must be timezone-aware")
 
-    return timestamp.astimezone(UTC)
+    utc_timestamp = timestamp.astimezone(UTC)
+
+    return utc_timestamp.replace(microsecond=(utc_timestamp.microsecond // 1000) * 1000)
 
 
 def _encode_base64url(value: bytes) -> str:

@@ -255,3 +255,25 @@ def test_short_session_secret_is_rejected() -> None:
             config,
             now=NOW,
         )
+
+
+def test_authorization_timestamps_use_bson_precision() -> None:
+    """Signed timestamps survive a MongoDB round trip exactly."""
+
+    precise_now = NOW.replace(
+        microsecond=123456,
+    )
+    config = configuration()
+
+    request = create_quickbooks_authorization_request(
+        config,
+        now=precise_now,
+    )
+    claims = verify_quickbooks_authorization_state(
+        request.state,
+        configuration=config,
+        now=precise_now,
+    )
+
+    assert claims.issued_at.microsecond == 123000
+    assert claims.expires_at.microsecond == 123000
