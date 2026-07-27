@@ -8,6 +8,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from typing import Protocol
 
 from app.models.accounting import (
     ChartOfAccount,
@@ -37,6 +38,50 @@ from app.services.classification.account_mapping import (
 
 class ProfitAndLossBuildError(ValueError):
     """Stored accounting evidence cannot safely produce a P&L."""
+
+
+class ProfitAndLossSourceReader(Protocol):
+    """Read approved transaction evidence for one reporting period."""
+
+    async def find_approved_sources(
+        self,
+        *,
+        start_date: date,
+        end_date: date,
+        currency: str,
+    ) -> tuple[ProfitAndLossSource, ...]:
+        """Return approved canonical P&L evidence."""
+
+
+async def generate_profit_and_loss_report_set(
+    *,
+    source_reader: ProfitAndLossSourceReader,
+    start_date: date,
+    end_date: date,
+    currency: str,
+    chart_of_accounts: ChartOfAccountsConfig,
+) -> ProfitAndLossReportSet:
+    """Load approved evidence and produce reconciled P&L reports."""
+
+    normalized_currency = _validate_report_period(
+        start_date=start_date,
+        end_date=end_date,
+        currency=currency,
+    )
+
+    sources = await source_reader.find_approved_sources(
+        start_date=start_date,
+        end_date=end_date,
+        currency=normalized_currency,
+    )
+
+    return build_profit_and_loss_report_set(
+        sources=sources,
+        start_date=start_date,
+        end_date=end_date,
+        currency=normalized_currency,
+        chart_of_accounts=chart_of_accounts,
+    )
 
 
 @dataclass(frozen=True, slots=True)

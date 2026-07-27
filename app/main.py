@@ -17,6 +17,7 @@ from app.repositories.classification_pattern import (
     ClassificationPatternRepository,
 )
 from app.repositories.ingestion import IngestionRepository
+from app.repositories.reporting import ProfitAndLossRepository
 from app.services.accounting.chart_of_accounts import (
     load_chart_of_accounts,
 )
@@ -70,6 +71,7 @@ def build_lifespan(settings: Settings):
             ingestion_repository = IngestionRepository(mongodb.database)
             classification_repository = ClassificationRepository(mongodb.database)
             classification_pattern_repository = ClassificationPatternRepository(mongodb.database)
+            profit_and_loss_repository = ProfitAndLossRepository(mongodb.database)
 
             if settings.app_env != "test":
                 await ingestion_repository.ensure_indexes()
@@ -80,6 +82,7 @@ def build_lifespan(settings: Settings):
             app.state.ingestion_repository = ingestion_repository
             app.state.classification_repository = classification_repository
             app.state.classification_pattern_repository = classification_pattern_repository
+            app.state.profit_and_loss_repository = profit_and_loss_repository
             app.state.chart_of_accounts = chart_of_accounts
             app.state.classification_rule_set = classification_rule_set
             app.state.gemini_classifier = gemini_classifier
