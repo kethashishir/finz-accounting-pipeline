@@ -10,29 +10,19 @@ from pydantic import ValidationError
 from app.models.accounting import (
     ChartOfAccount,
     ChartOfAccountsConfig,
-    QBOAccountType,
 )
-from app.models.classification import TransactionType
 from app.models.classification_rule import (
     DeterministicClassificationRule,
     DeterministicRuleSet,
+)
+from app.services.classification.account_mapping import (
+    InvalidClassificationAccountMappingError,
+    validate_classification_account_target,
 )
 
 
 class DeterministicRuleConfigurationError(ValueError):
     """A deterministic rule configuration is unsafe or malformed."""
-
-
-_EXPECTED_ACCOUNT_TYPES = {
-    TransactionType.REVENUE: frozenset({QBOAccountType.INCOME}),
-    TransactionType.COST_OF_GOODS_SOLD: frozenset({QBOAccountType.COST_OF_GOODS_SOLD}),
-    TransactionType.OPERATING_EXPENSE: frozenset({QBOAccountType.EXPENSES}),
-    TransactionType.REFUND: frozenset({QBOAccountType.INCOME}),
-    TransactionType.TRANSFER: frozenset({QBOAccountType.BANK}),
-    TransactionType.OWNER_CONTRIBUTION: frozenset({QBOAccountType.EQUITY}),
-    TransactionType.OWNER_DISTRIBUTION: frozenset({QBOAccountType.EQUITY}),
-    TransactionType.FIXED_ASSET_PURCHASE: frozenset({QBOAccountType.FIXED_ASSETS}),
-}
 
 
 def load_deterministic_rule_set(
@@ -81,29 +71,12 @@ def _validate_rule_accounting(
             f"received {rule.outcome.account_name!r}"
         )
 
-    expected_types = _EXPECTED_ACCOUNT_TYPES[rule.outcome.transaction_type]
-
-    if account.qbo_account_type not in expected_types:
-        raise DeterministicRuleConfigurationError(
-            f"Rule {rule.id!r} transaction type "
-            f"{rule.outcome.transaction_type.value!r} cannot use "
-            f"QuickBooks account type "
-            f"{account.qbo_account_type.value!r}"
+    try:
+        validate_classification_account_target(
+            transaction_type=rule.outcome.transaction_type,
+            account=account,
+            source_bank_account=rule.match.bank_account,
+            subject=f"Rule {rule.id!r}",
         )
-
-    if rule.outcome.transaction_type is TransactionType.REFUND and account.number != "4100":
-        raise DeterministicRuleConfigurationError(f"Rule {rule.id!r} refunds must use account 4100")
-
-    if rule.outcome.transaction_type is TransactionType.REVENUE and account.number == "4100":
-        raise DeterministicRuleConfigurationError(
-            f"Rule {rule.id!r} ordinary revenue cannot use refund account 4100"
-        )
-
-    if (
-        rule.outcome.transaction_type is TransactionType.TRANSFER
-        and rule.match.bank_account is not None
-        and rule.match.bank_account == account.name.casefold()
-    ):
-        raise DeterministicRuleConfigurationError(
-            f"Rule {rule.id!r} transfer counterpart cannot be the same as the source bank account"
-        )
+    except InvalidClassificationAccountMappingError as exc:
+        raise DeterministicRuleConfigurationError(str(exc)) from exc
