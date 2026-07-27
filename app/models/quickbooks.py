@@ -236,3 +236,53 @@ class EncryptedQuickBooksTokenSet(BaseModel):
     issued_at: datetime
     access_token_expires_at: datetime
     refresh_token_expires_at: datetime
+
+    @model_validator(mode="after")
+    def validate_encrypted_token_lifetimes(
+        self,
+    ) -> EncryptedQuickBooksTokenSet:
+        """Validate safe token metadata without decrypting tokens."""
+
+        timestamps = (
+            self.issued_at,
+            self.access_token_expires_at,
+            self.refresh_token_expires_at,
+        )
+
+        if any(value.utcoffset() is None for value in timestamps):
+            raise ValueError("Encrypted QuickBooks token timestamps must be timezone-aware")
+
+        if self.access_token_expires_at <= self.issued_at:
+            raise ValueError("Encrypted QuickBooks access token must expire after it is issued")
+
+        if self.refresh_token_expires_at <= self.access_token_expires_at:
+            raise ValueError(
+                "Encrypted QuickBooks refresh token must expire after the access token"
+            )
+
+        return self
+
+
+class QuickBooksConnectionRecord(EncryptedQuickBooksTokenSet):
+    """Persisted encrypted connection to one QBO company."""
+
+    revision: int = Field(ge=1)
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="after")
+    def validate_connection_timestamps(
+        self,
+    ) -> QuickBooksConnectionRecord:
+        """Validate persistence and token chronology."""
+
+        if self.created_at.utcoffset() is None or self.updated_at.utcoffset() is None:
+            raise ValueError("QuickBooks connection timestamps must be timezone-aware")
+
+        if self.updated_at < self.created_at:
+            raise ValueError("QuickBooks connection cannot be updated before it is created")
+
+        if self.updated_at < self.issued_at:
+            raise ValueError("QuickBooks connection cannot store tokens before they are issued")
+
+        return self

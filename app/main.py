@@ -20,6 +20,9 @@ from app.repositories.ingestion import IngestionRepository
 from app.repositories.quickbooks import (
     QuickBooksOAuthStateRepository,
 )
+from app.repositories.quickbooks_connection import (
+    QuickBooksConnectionRepository,
+)
 from app.repositories.reporting import ProfitAndLossRepository
 from app.services.accounting.chart_of_accounts import (
     load_chart_of_accounts,
@@ -76,12 +79,14 @@ def build_lifespan(settings: Settings):
             classification_pattern_repository = ClassificationPatternRepository(mongodb.database)
             profit_and_loss_repository = ProfitAndLossRepository(mongodb.database)
             quickbooks_oauth_state_repository = QuickBooksOAuthStateRepository(mongodb.database)
+            quickbooks_connection_repository = QuickBooksConnectionRepository(mongodb.database)
 
             if settings.app_env != "test":
                 await ingestion_repository.ensure_indexes()
                 await classification_repository.ensure_indexes()
                 await classification_pattern_repository.ensure_indexes()
                 await quickbooks_oauth_state_repository.ensure_indexes()
+                await quickbooks_connection_repository.ensure_indexes()
 
             app.state.mongodb = mongodb
             app.state.ingestion_repository = ingestion_repository
@@ -89,6 +94,7 @@ def build_lifespan(settings: Settings):
             app.state.classification_pattern_repository = classification_pattern_repository
             app.state.profit_and_loss_repository = profit_and_loss_repository
             app.state.quickbooks_oauth_state_repository = quickbooks_oauth_state_repository
+            app.state.quickbooks_connection_repository = quickbooks_connection_repository
             app.state.chart_of_accounts = chart_of_accounts
             app.state.classification_rule_set = classification_rule_set
             app.state.gemini_classifier = gemini_classifier
