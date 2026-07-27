@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Protocol
 from uuid import UUID
 
@@ -9,6 +10,7 @@ from app.models.accounting import ChartOfAccountsConfig
 from app.models.classification import (
     ClassificationDecision,
     ImmutableAccountingModel,
+    NonEmptyString,
     TransactionClassification,
 )
 from app.models.classification_rule import (
@@ -18,6 +20,7 @@ from app.models.classification_rule import (
 from app.models.ingestion import NormalizedTransaction
 from app.services.classification.gemini import (
     GeminiClassifier,
+    GeminiUnavailableError,
     build_gemini_decision,
     build_gemini_request,
 )
@@ -38,6 +41,13 @@ class InitialClassificationWriter(Protocol):
         classification: TransactionClassification,
     ) -> bool:
         """Insert an initial classification or recognize an exact retry."""
+
+
+class ManualReviewReason(StrEnum):
+    """Why automated classification could not safely finish."""
+
+    GEMINI_DISABLED = "gemini_disabled"
+    GEMINI_UNAVAILABLE = "gemini_unavailable"
 
 
 class LearnedPatternClassificationResult(ImmutableAccountingModel):
@@ -65,10 +75,19 @@ class GeminiClassificationResult(ImmutableAccountingModel):
     classification: TransactionClassification
 
 
+class ManualReviewRequiredResult(ImmutableAccountingModel):
+    """Unclassified transaction requiring an explicit human decision."""
+
+    normalized_transaction_id: UUID
+    reason: ManualReviewReason
+    explanation: NonEmptyString
+
+
 InitialClassificationResult = (
     LearnedPatternClassificationResult
     | DeterministicRuleClassificationResult
     | GeminiClassificationResult
+    | ManualReviewRequiredResult
 )
 
 
@@ -80,8 +99,8 @@ async def classify_initial(
     classification_writer: InitialClassificationWriter,
     chart_of_accounts: ChartOfAccountsConfig,
     gemini_classifier: GeminiClassifier | None = None,
-) -> InitialClassificationResult | None:
-    """Classify once using approved corrections, rules, then optional Gemini."""
+) -> InitialClassificationResult:
+    """Classify once or return a safe explicit manual-review requirement."""
 
     pattern_match = await match_learned_pattern(
         transaction=transaction,
@@ -124,13 +143,32 @@ async def classify_initial(
         )
 
     if gemini_classifier is None:
-        return None
+        return ManualReviewRequiredResult(
+            normalized_transaction_id=transaction.id,
+            reason=ManualReviewReason.GEMINI_DISABLED,
+            explanation=(
+                "No learned pattern or deterministic rule matched, and "
+                "Gemini classification is disabled."
+            ),
+        )
 
     request = build_gemini_request(
         transaction=transaction,
         chart_of_accounts=chart_of_accounts,
     )
-    response = await gemini_classifier.classify(request)
+
+    try:
+        response = await gemini_classifier.classify(request)
+    except GeminiUnavailableError:
+        return ManualReviewRequiredResult(
+            normalized_transaction_id=transaction.id,
+            reason=ManualReviewReason.GEMINI_UNAVAILABLE,
+            explanation=(
+                "No learned pattern or deterministic rule matched, and "
+                "Gemini was temporarily unavailable."
+            ),
+        )
+
     decision = build_gemini_decision(
         transaction=transaction,
         response=response,

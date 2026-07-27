@@ -27,11 +27,14 @@ from app.services.accounting.chart_of_accounts import (
 from app.services.classification.gemini import (
     GeminiClassificationRequest,
     GeminiClassificationResponse,
+    GeminiUnavailableError,
     InvalidGeminiClassificationError,
 )
 from app.services.classification.initial_classification import (
     DeterministicRuleClassificationResult,
     GeminiClassificationResult,
+    ManualReviewReason,
+    ManualReviewRequiredResult,
     classify_initial,
 )
 from app.services.classification.rule_config import (
@@ -225,21 +228,24 @@ async def test_unmatched_transaction_uses_gemini_and_persists_once() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unmatched_transaction_without_gemini_remains_unpersisted() -> None:
-    """Disabled Gemini leaves the transaction for manual fallback."""
+async def test_unmatched_transaction_without_gemini_requires_review() -> None:
+    """Disabled Gemini returns an explicit non-persisted review result."""
 
     catalog, rule_set = supplied_dependencies()
     writer = FakeClassificationWriter()
+    transaction = create_transaction()
 
     result = await classify_initial(
-        transaction=create_transaction(),
+        transaction=transaction,
         pattern_lookup=FakePatternLookup(),
         rule_set=rule_set,
         classification_writer=writer,
         chart_of_accounts=catalog,
     )
 
-    assert result is None
+    assert isinstance(result, ManualReviewRequiredResult)
+    assert result.normalized_transaction_id == transaction.id
+    assert result.reason is ManualReviewReason.GEMINI_DISABLED
     assert writer.saved == []
 
 
@@ -294,27 +300,27 @@ async def test_invalid_gemini_mapping_is_not_persisted() -> None:
 
 
 @pytest.mark.asyncio
-async def test_gemini_provider_failure_stops_before_persistence() -> None:
-    """Provider errors remain visible and cannot create a classification."""
+async def test_gemini_provider_unavailability_requires_review() -> None:
+    """Provider availability failures return a non-persisted fallback."""
 
     catalog, rule_set = supplied_dependencies()
     writer = FakeClassificationWriter()
+    transaction = create_transaction()
 
-    with pytest.raises(
-        RuntimeError,
-        match="provider unavailable",
-    ):
-        await classify_initial(
-            transaction=create_transaction(),
-            pattern_lookup=FakePatternLookup(),
-            rule_set=rule_set,
-            classification_writer=writer,
-            chart_of_accounts=catalog,
-            gemini_classifier=FakeGeminiClassifier(
-                error=RuntimeError("provider unavailable"),
-            ),
-        )
+    result = await classify_initial(
+        transaction=transaction,
+        pattern_lookup=FakePatternLookup(),
+        rule_set=rule_set,
+        classification_writer=writer,
+        chart_of_accounts=catalog,
+        gemini_classifier=FakeGeminiClassifier(
+            error=GeminiUnavailableError("provider unavailable"),
+        ),
+    )
 
+    assert isinstance(result, ManualReviewRequiredResult)
+    assert result.normalized_transaction_id == transaction.id
+    assert result.reason is ManualReviewReason.GEMINI_UNAVAILABLE
     assert writer.saved == []
 
 

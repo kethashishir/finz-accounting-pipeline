@@ -35,6 +35,8 @@ from app.services.accounting.chart_of_accounts import (
 from app.services.classification.initial_classification import (
     DeterministicRuleClassificationResult,
     LearnedPatternClassificationResult,
+    ManualReviewReason,
+    ManualReviewRequiredResult,
     classify_initial,
 )
 from app.services.classification.rule_config import (
@@ -250,24 +252,27 @@ async def test_deterministic_rule_runs_when_no_pattern_exists() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unmatched_transaction_is_left_for_gemini() -> None:
-    """No trusted match leaves the transaction unpersisted for fallback."""
+async def test_unmatched_transaction_requires_manual_review() -> None:
+    """No trusted match and disabled Gemini return an explicit fallback."""
 
     catalog, rule_set = supplied_dependencies()
     writer = FakeClassificationWriter()
+    transaction = create_transaction(
+        description="UNRECOGNIZED MERCHANT PAYMENT",
+        amount=Decimal("-125.00"),
+    )
 
     result = await classify_initial(
-        transaction=create_transaction(
-            description="UNRECOGNIZED MERCHANT PAYMENT",
-            amount=Decimal("-125.00"),
-        ),
+        transaction=transaction,
         pattern_lookup=FakePatternLookup(None),
         rule_set=rule_set,
         classification_writer=writer,
         chart_of_accounts=catalog,
     )
 
-    assert result is None
+    assert isinstance(result, ManualReviewRequiredResult)
+    assert result.normalized_transaction_id == transaction.id
+    assert result.reason is ManualReviewReason.GEMINI_DISABLED
     assert writer.saved == []
 
 

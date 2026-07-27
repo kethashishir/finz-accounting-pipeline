@@ -68,6 +68,10 @@ ALLOWED_TRANSACTION_TYPES_BY_DIRECTION = {
 }
 
 
+class GeminiUnavailableError(RuntimeError):
+    """Gemini could not produce a classification due to availability."""
+
+
 class UnsafeGeminiTransactionError(ValueError):
     """The transaction is not safe input for AI classification."""
 

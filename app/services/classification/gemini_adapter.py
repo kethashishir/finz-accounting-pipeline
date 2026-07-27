@@ -14,6 +14,7 @@ from app.services.classification.gemini import (
     GeminiClassificationRequest,
     GeminiClassificationResponse,
     GeminiClassifier,
+    GeminiUnavailableError,
 )
 
 
@@ -21,7 +22,7 @@ class GeminiNotConfiguredError(RuntimeError):
     """Gemini classification is disabled by missing settings."""
 
 
-class GeminiGenerationError(RuntimeError):
+class GeminiGenerationError(GeminiUnavailableError):
     """The Gemini SDK request failed before returning a response."""
 
 
