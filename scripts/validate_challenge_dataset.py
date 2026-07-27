@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from datetime import date
+from collections import defaultdict
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 
 from app.core.config import get_settings
 from app.db.client import MongoDatabase
+from app.models.accounting import QBOAccountType
 from app.models.classification import (
     ClassificationSource,
     ReviewStatus,
+    TransactionType,
 )
 from app.models.ingestion import (
     ColumnMapping,
@@ -21,6 +25,7 @@ from app.models.ingestion import (
     RecordStatus,
     UploadStatus,
 )
+from app.models.profit_and_loss import ProfitAndLossReportSet
 from app.repositories.classification import (
     ClassificationRepository,
 )
@@ -28,6 +33,7 @@ from app.repositories.classification_pattern import (
     ClassificationPatternRepository,
 )
 from app.repositories.ingestion import IngestionRepository
+from app.repositories.reporting import ProfitAndLossRepository
 from app.services.accounting.chart_of_accounts import (
     load_chart_of_accounts,
 )
@@ -35,10 +41,16 @@ from app.services.classification.batch_classification import (
     BatchClassificationSummary,
     classify_upload,
 )
+from app.services.classification.review_actions import (
+    finalize_classification_review,
+)
 from app.services.classification.rule_config import (
     load_deterministic_rule_set,
 )
 from app.services.ingestion.pipeline import IngestionPipeline
+from app.services.reporting.profit_and_loss import (
+    generate_profit_and_loss_report_set,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CHART_OF_ACCOUNTS_PATH = PROJECT_ROOT / "sample_config" / "chart_of_accounts.json"
@@ -116,8 +128,187 @@ def assert_classification_summary(
     assert len({outcome.normalized_transaction_id for outcome in summary.outcomes}) == 195
 
 
+async def approve_all_classifications(
+    *,
+    summary: BatchClassificationSummary,
+    repository: ClassificationRepository,
+) -> int:
+    """Approve every stored deterministic classification."""
+
+    transaction_ids = tuple(outcome.normalized_transaction_id for outcome in summary.outcomes)
+    stored = await repository.find_by_transaction_ids(transaction_ids)
+
+    assert len(stored) == 195
+
+    reviewed_at = datetime.now(UTC)
+    approved_count = 0
+
+    for transaction_id in sorted(
+        stored,
+        key=str,
+    ):
+        classification = stored[transaction_id]
+
+        assert classification.review_status is ReviewStatus.PENDING
+
+        result = await finalize_classification_review(
+            normalized_transaction_id=transaction_id,
+            expected_version=classification.version,
+            outcome=ReviewStatus.APPROVED,
+            reviewer_id="challenge-dataset-validator",
+            reviewed_at=reviewed_at,
+            notes=(
+                "Approved during real-workbook acceptance "
+                "after deterministic classification validation."
+            ),
+            repository=repository,
+        )
+
+        assert result.updated is True
+        assert result.classification.review_status is ReviewStatus.APPROVED
+        approved_count += 1
+
+    return approved_count
+
+
+def assert_profit_and_loss_acceptance(
+    *,
+    report: ProfitAndLossReportSet,
+    sources,
+    chart_of_accounts,
+) -> None:
+    """Independently reconcile report totals to approved evidence."""
+
+    assert len(report.monthly) == 3
+    assert [
+        (
+            statement.start_date,
+            statement.end_date,
+        )
+        for statement in report.monthly
+    ] == [
+        (
+            date(2026, 4, 1),
+            date(2026, 4, 30),
+        ),
+        (
+            date(2026, 5, 1),
+            date(2026, 5, 31),
+        ),
+        (
+            date(2026, 6, 1),
+            date(2026, 6, 30),
+        ),
+    ]
+
+    assert report.consolidated.start_date == date(
+        2026,
+        4,
+        1,
+    )
+    assert report.consolidated.end_date == date(
+        2026,
+        6,
+        30,
+    )
+    assert report.consolidated.currency == "USD"
+
+    assert len(sources) == 180
+    assert report.consolidated.transaction_count == 180
+    assert len(report.consolidated.account_lines) == 17
+
+    expected_transaction_ids = frozenset(source.transaction.id for source in sources)
+
+    assert report.consolidated.transaction_ids == expected_transaction_ids
+
+    expected_account_totals = defaultdict(lambda: Decimal("0.00"))
+    expected_account_counts = defaultdict(int)
+
+    expected_month_totals = {
+        (
+            statement.start_date.year,
+            statement.start_date.month,
+        ): {
+            "revenue": Decimal("0.00"),
+            "cogs": Decimal("0.00"),
+            "expenses": Decimal("0.00"),
+            "count": 0,
+        }
+        for statement in report.monthly
+    }
+
+    for source in sources:
+        transaction = source.transaction
+        classification = source.classification
+
+        assert transaction.transaction_date is not None
+        assert transaction.amount is not None
+
+        transaction_type = classification.decision.transaction_type
+        account_number = classification.decision.qbo_account.account_number
+        account = chart_of_accounts.require(account_number)
+
+        if transaction_type in {
+            TransactionType.REVENUE,
+            TransactionType.REFUND,
+        }:
+            report_amount = transaction.amount
+        else:
+            report_amount = -transaction.amount
+
+        expected_account_totals[account_number] += report_amount
+        expected_account_counts[account_number] += 1
+
+        month_key = (
+            transaction.transaction_date.year,
+            transaction.transaction_date.month,
+        )
+        month_totals = expected_month_totals[month_key]
+        month_totals["count"] += 1
+
+        if account.qbo_account_type is QBOAccountType.INCOME:
+            month_totals["revenue"] += report_amount
+        elif account.qbo_account_type is QBOAccountType.COST_OF_GOODS_SOLD:
+            month_totals["cogs"] += report_amount
+        elif account.qbo_account_type is QBOAccountType.EXPENSES:
+            month_totals["expenses"] += report_amount
+        else:
+            raise AssertionError("Balance-sheet account reached P&L evidence")
+
+    actual_account_totals = {
+        line.account_number: line.total for line in report.consolidated.account_lines
+    }
+    actual_account_counts = {
+        line.account_number: len(line.transactions) for line in report.consolidated.account_lines
+    }
+
+    assert actual_account_totals == dict(expected_account_totals)
+    assert actual_account_counts == dict(expected_account_counts)
+
+    for statement in report.monthly:
+        month_key = (
+            statement.start_date.year,
+            statement.start_date.month,
+        )
+        expected = expected_month_totals[month_key]
+
+        assert statement.total_revenue == expected["revenue"]
+        assert statement.total_cost_of_goods_sold == expected["cogs"]
+        assert statement.total_operating_expenses == expected["expenses"]
+        assert statement.gross_profit == (expected["revenue"] - expected["cogs"])
+        assert statement.net_profit == (
+            expected["revenue"] - expected["cogs"] - expected["expenses"]
+        )
+        assert statement.transaction_count == expected["count"]
+
+    assert (
+        sum(statement.transaction_count for statement in report.monthly)
+        == report.consolidated.transaction_count
+    )
+
+
 async def validate(workbook_path: Path) -> None:
-    """Validate workbook ingestion and classification persistence."""
+    """Validate workbook ingestion, classification, approval, and P&L."""
 
     resolved_path = workbook_path.expanduser().resolve()
     if not resolved_path.is_file():
@@ -133,6 +324,7 @@ async def validate(workbook_path: Path) -> None:
     ingestion_repository = IngestionRepository(mongodb.database)
     classification_repository = ClassificationRepository(mongodb.database)
     pattern_repository = ClassificationPatternRepository(mongodb.database)
+    reporting_repository = ProfitAndLossRepository(mongodb.database)
     pipeline = IngestionPipeline(ingestion_repository)
 
     chart_of_accounts = load_chart_of_accounts(CHART_OF_ACCOUNTS_PATH)
@@ -379,7 +571,52 @@ async def validate(workbook_path: Path) -> None:
         )
         assert await classifications.count_documents({}) == expected_stored
 
-        print("Finz workbook ingestion and classification validation: PASS")
+        assert expected_stored == 195
+
+        approved_count = await approve_all_classifications(
+            summary=first_classification,
+            repository=classification_repository,
+        )
+
+        assert approved_count == 195
+        assert (
+            await classifications.count_documents(
+                {
+                    "review_status": (ReviewStatus.APPROVED.value),
+                }
+            )
+            == 195
+        )
+        assert (
+            await classifications.count_documents(
+                {
+                    "review_status": (ReviewStatus.PENDING.value),
+                }
+            )
+            == 0
+        )
+
+        report_sources = await reporting_repository.find_approved_sources(
+            start_date=date(2026, 4, 1),
+            end_date=date(2026, 6, 30),
+            currency="USD",
+        )
+
+        report = await generate_profit_and_loss_report_set(
+            source_reader=reporting_repository,
+            start_date=date(2026, 4, 1),
+            end_date=date(2026, 6, 30),
+            currency="USD",
+            chart_of_accounts=chart_of_accounts,
+        )
+
+        assert_profit_and_loss_acceptance(
+            report=report,
+            sources=report_sources,
+            chart_of_accounts=chart_of_accounts,
+        )
+
+        print("Finz workbook ingestion, classification, and P&L validation: PASS")
         print(f"Temporary database: {validation_database_name}")
         print(f"Upload ID: {result.upload_id}")
         print(f"SHA-256: {result.file_sha256}")
@@ -403,6 +640,50 @@ async def validate(workbook_path: Path) -> None:
         print(f"Second-run already classified: {second_classification.already_classified}")
         print(f"Second-run manual-review outcomes: {second_classification.manual_review_required}")
         print("Classification retry idempotency: PASS")
+        print(f"Approved classifications: {approved_count}")
+        print(f"P&L transactions included: {report.consolidated.transaction_count}")
+        print(
+            "Balance-sheet transactions excluded: "
+            f"{approved_count - report.consolidated.transaction_count}"
+        )
+        print("Monthly cash-basis P&L:")
+
+        for statement in report.monthly:
+            print(
+                "  "
+                f"{statement.start_date:%Y-%m}: "
+                f"Revenue={statement.total_revenue:.2f}, "
+                "COGS="
+                f"{statement.total_cost_of_goods_sold:.2f}, "
+                f"Gross Profit={statement.gross_profit:.2f}, "
+                "Operating Expenses="
+                f"{statement.total_operating_expenses:.2f}, "
+                f"Net Profit={statement.net_profit:.2f}, "
+                f"Transactions={statement.transaction_count}"
+            )
+
+        consolidated = report.consolidated
+        print(
+            "Consolidated cash-basis P&L: "
+            f"Revenue={consolidated.total_revenue:.2f}, "
+            "COGS="
+            f"{consolidated.total_cost_of_goods_sold:.2f}, "
+            f"Gross Profit={consolidated.gross_profit:.2f}, "
+            "Operating Expenses="
+            f"{consolidated.total_operating_expenses:.2f}, "
+            f"Net Profit={consolidated.net_profit:.2f}, "
+            f"Transactions={consolidated.transaction_count}"
+        )
+        print("Consolidated P&L account totals:")
+
+        for line in consolidated.account_lines:
+            print(
+                f"  {line.account_number} "
+                f"{line.account_name}: "
+                f"{line.total:.2f} "
+                f"({len(line.transactions)} transactions)"
+            )
+
         print("Stored account distribution:")
 
         for account_count in first_account_counts:
