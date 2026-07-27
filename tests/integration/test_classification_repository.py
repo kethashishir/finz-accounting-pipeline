@@ -612,3 +612,50 @@ async def test_competing_review_outcome_is_rejected(
 
     stored = await classification_repository.find_by_transaction_id(transaction.id)
     assert stored == approved
+
+
+@pytest.mark.asyncio
+async def test_bulk_find_returns_only_existing_classifications(
+    repositories: tuple[
+        ClassificationRepository,
+        IngestionRepository,
+    ],
+) -> None:
+    """Batch lookup returns requested stored classifications by UUID."""
+
+    classification_repository, ingestion_repository = repositories
+    transaction = await persist_valid_transaction(ingestion_repository)
+    classification = create_classification(transaction.id)
+
+    await classification_repository.save_initial(classification)
+
+    missing_transaction_id = uuid4()
+
+    found = await classification_repository.find_by_transaction_ids(
+        (
+            transaction.id,
+            missing_transaction_id,
+            transaction.id,
+        )
+    )
+
+    assert found == {
+        transaction.id: classification,
+    }
+    assert missing_transaction_id not in found
+
+
+@pytest.mark.asyncio
+async def test_bulk_find_with_no_ids_returns_empty_mapping(
+    repositories: tuple[
+        ClassificationRepository,
+        IngestionRepository,
+    ],
+) -> None:
+    """An empty batch avoids an unnecessary MongoDB query."""
+
+    classification_repository, _ = repositories
+
+    found = await classification_repository.find_by_transaction_ids(())
+
+    assert found == {}

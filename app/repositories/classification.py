@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from uuid import UUID
 
 from pymongo import ASCENDING
@@ -239,6 +240,32 @@ class ClassificationRepository:
             return None
 
         return classification_from_document(document)
+
+    async def find_by_transaction_ids(
+        self,
+        normalized_transaction_ids: Sequence[UUID],
+    ) -> dict[UUID, TransactionClassification]:
+        """Return existing classifications keyed by transaction UUID."""
+
+        unique_ids = tuple(dict.fromkeys(normalized_transaction_ids))
+
+        if not unique_ids:
+            return {}
+
+        cursor = self.classifications.find(
+            {
+                "_id": {
+                    "$in": list(unique_ids),
+                }
+            }
+        )
+
+        classifications = [classification_from_document(document) async for document in cursor]
+
+        return {
+            classification.normalized_transaction_id: classification
+            for classification in classifications
+        }
 
     async def _find_required_classification(
         self,
