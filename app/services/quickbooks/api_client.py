@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Self
 
 import httpx2
@@ -87,6 +88,27 @@ class QuickBooksApiAccount(BaseModel):
     active: bool = Field(
         default=True,
         alias="Active",
+    )
+
+
+class QuickBooksApiJournalEntry(BaseModel):
+    """Validated evidence returned after a QBO journal-entry write."""
+
+    model_config = ConfigDict(
+        extra="ignore",
+        frozen=True,
+        populate_by_name=True,
+    )
+
+    id: str = Field(alias="Id")
+    sync_token: str = Field(alias="SyncToken")
+    transaction_date: date | None = Field(
+        default=None,
+        alias="TxnDate",
+    )
+    private_note: str | None = Field(
+        default=None,
+        alias="PrivateNote",
     )
 
 
@@ -201,6 +223,33 @@ class QuickBooksApiClient:
             model=QuickBooksApiAccount,
         )
 
+    async def create_journal_entry(
+        self,
+        *,
+        access_token: SecretStr,
+        realm_id: str,
+        request_id: str,
+        payload: dict[str, object],
+    ) -> QuickBooksApiJournalEntry:
+        """Create one idempotent QBO journal entry."""
+
+        response = await self._post(
+            path="journalentry",
+            access_token=access_token,
+            realm_id=realm_id,
+            payload=payload,
+            request_id=request_id,
+        )
+        entity = response.get("JournalEntry")
+
+        if not isinstance(entity, dict):
+            raise QuickBooksApiResponseError("QuickBooks response omitted JournalEntry")
+
+        try:
+            return QuickBooksApiJournalEntry.model_validate(entity)
+        except ValidationError as exc:
+            raise QuickBooksApiResponseError("QuickBooks returned an invalid JournalEntry") from exc
+
     async def _get(
         self,
         *,
@@ -240,6 +289,7 @@ class QuickBooksApiClient:
         access_token: SecretStr,
         realm_id: str,
         payload: dict[str, object],
+        request_id: str | None = None,
     ) -> dict[str, object]:
         """Send one authenticated JSON POST request."""
 
@@ -248,13 +298,17 @@ class QuickBooksApiClient:
             realm_id=realm_id,
             path=path,
         )
+        request_params = {
+            "minorversion": QBO_MINOR_VERSION,
+        }
+
+        if request_id is not None:
+            request_params["requestid"] = _request_id(request_id)
 
         try:
             response = await self._client.post(
                 url,
-                params={
-                    "minorversion": QBO_MINOR_VERSION,
-                },
+                params=request_params,
                 json=payload,
                 headers=_headers(access_token),
                 timeout=QBO_API_TIMEOUT_SECONDS,
@@ -358,6 +412,26 @@ def _realm_id(value: str) -> str:
         or len(normalized) > 64
     ):
         raise ValueError("QuickBooks realm ID must contain only digits")
+
+    return normalized
+
+
+def _request_id(value: str) -> str:
+    """Validate one company-scoped Intuit request ID."""
+
+    normalized = value.strip()
+
+    if (
+        not normalized
+        or len(normalized) > 50
+        or not normalized.isascii()
+        or any(character not in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in normalized)
+    ):
+        raise ValueError(
+            "QuickBooks request ID must contain only "
+            "lowercase letters, digits, and hyphens "
+            "and cannot exceed 50 characters"
+        )
 
     return normalized
 
