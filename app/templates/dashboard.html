@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  >
+  <title>{{ company_name }} · Finz</title>
+  <link
+    rel="stylesheet"
+    href="/static/app.css"
+  >
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">F</div>
+        <div>
+          <strong>Finz</strong>
+          <span>Accounting Pipeline</span>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-target="overview">
+          <span>01</span> Overview
+        </button>
+        <button class="nav-item" data-target="upload">
+          <span>02</span> Upload &amp; Map
+        </button>
+        <button class="nav-item" data-target="transactions">
+          <span>03</span> Transactions
+        </button>
+        <button class="nav-item" data-target="review">
+          <span>04</span> Review
+        </button>
+        <button class="nav-item" data-target="profit-loss">
+          <span>05</span> Profit &amp; Loss
+        </button>
+        <button class="nav-item" data-target="quickbooks">
+          <span>06</span> QuickBooks
+        </button>
+        <button class="nav-item" data-target="reconciliation">
+          <span>07</span> Reconciliation
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <span>BrightFix sandbox</span>
+        <small>Version {{ version }}</small>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Finance operations</p>
+          <h1>{{ company_name }}</h1>
+        </div>
+
+        <div class="topbar-actions">
+          <span class="status-chip" id="mongo-status">
+            <i></i> Loading data
+          </span>
+          <span class="status-chip" id="gemini-status">
+            <i></i> Gemini
+          </span>
+          <button
+            class="button secondary"
+            id="refresh-button"
+            type="button"
+          >
+            Refresh
+          </button>
+        </div>
+      </header>
+
+      <section class="page-section active" id="overview">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">System snapshot</p>
+            <h2>Accounting workflow</h2>
+          </div>
+          <p>
+            Preserved source records, reviewed classifications,
+            cash-basis reporting, and QuickBooks reconciliation.
+          </p>
+        </div>
+
+        <div class="metric-grid">
+          <article class="metric-card">
+            <span>Raw records</span>
+            <strong id="metric-raw">—</strong>
+            <small>Original source rows preserved</small>
+          </article>
+          <article class="metric-card">
+            <span>Canonical</span>
+            <strong id="metric-canonical">—</strong>
+            <small>Safe normalized transactions</small>
+          </article>
+          <article class="metric-card">
+            <span>Classified</span>
+            <strong id="metric-classified">—</strong>
+            <small>Accounting decisions stored</small>
+          </article>
+          <article class="metric-card">
+            <span>QBO synced</span>
+            <strong id="metric-synced">—</strong>
+            <small>Idempotent JournalEntries</small>
+          </article>
+        </div>
+
+        <div class="two-column">
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Pipeline</p>
+                <h3>Workflow completion</h3>
+              </div>
+            </div>
+            <div class="pipeline-list" id="pipeline-list"></div>
+          </article>
+
+          <article class="panel highlight-panel">
+            <div>
+              <p class="eyebrow">Consolidated result</p>
+              <h3>Cash-basis net profit</h3>
+            </div>
+            <strong class="hero-number">$68,180.00</strong>
+            <p>
+              Apr 1–Jun 30, 2026. Internal and QuickBooks
+              reports reconcile at exact cents.
+            </p>
+            <button
+              class="button light"
+              type="button"
+              data-jump="profit-loss"
+            >
+              View P&amp;L
+            </button>
+          </article>
+        </div>
+      </section>
+
+      <section class="page-section" id="upload">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Source ingestion</p>
+            <h2>Upload and map bank data</h2>
+          </div>
+          <p>
+            Inspect untrusted CSV or Excel files before processing.
+            Edit the mapping for each bank export.
+          </p>
+        </div>
+
+        <div class="two-column upload-layout">
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Step 1</p>
+                <h3>Select source file</h3>
+              </div>
+            </div>
+
+            <label class="file-drop" for="source-file">
+              <strong>Choose CSV or XLSX</strong>
+              <span>
+                The source is inspected before any record is stored.
+              </span>
+              <input
+                id="source-file"
+                type="file"
+                accept=".csv,.xlsx"
+              >
+            </label>
+
+            <div class="button-row">
+              <button
+                class="button secondary"
+                id="inspect-button"
+                type="button"
+              >
+                Inspect file
+              </button>
+              <span class="inline-status" id="inspect-status"></span>
+            </div>
+
+            <pre
+              class="result-box compact"
+              id="inspection-output"
+            >No file inspected.</pre>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Step 2</p>
+                <h3>Column mapping</h3>
+              </div>
+              <span class="badge">Editable JSON</span>
+            </div>
+
+            <textarea
+              id="mapping-config"
+              class="mapping-editor"
+              spellcheck="false"
+            >{
+  "file_type": "xlsx",
+  "sheet_name": "Raw Bank Transactions",
+  "header_row": 4,
+  "date_format": "%Y-%m-%d",
+  "column_mapping": {
+    "source_transaction_id": "Bank Transaction ID",
+    "transaction_date": "Transaction Date",
+    "posted_date": "Posted Date",
+    "description": "Description",
+    "amount": "Amount (USD)",
+    "currency": "Currency",
+    "bank_account": "Bank Account"
+  },
+  "default_currency": null,
+  "default_bank_account": null
+}</textarea>
+
+            <div class="button-row">
+              <button
+                class="button primary"
+                id="process-button"
+                type="button"
+              >
+                Process and classify
+              </button>
+              <span class="inline-status" id="process-status"></span>
+            </div>
+
+            <pre
+              class="result-box compact"
+              id="process-output"
+            >Waiting for upload.</pre>
+          </article>
+        </div>
+      </section>
+
+      <section class="page-section" id="transactions">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Normalized evidence</p>
+            <h2>Transactions</h2>
+          </div>
+          <div class="filter-row">
+            <input
+              id="transaction-search"
+              type="search"
+              placeholder="Search descriptions or accounts"
+            >
+            <select id="transaction-status-filter">
+              <option value="">All statuses</option>
+              <option value="approved">Approved</option>
+              <option value="pending">Pending</option>
+              <option value="duplicate">Duplicate</option>
+              <option value="invalid">Invalid</option>
+            </select>
+          </div>
+        </div>
+
+        <article class="panel table-panel">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Description</th>
+                  <th>Amount</th>
+                  <th>Type</th>
+                  <th>QBO account</th>
+                  <th>Confidence</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="transaction-table">
+                <tr>
+                  <td colspan="7" class="empty-cell">
+                    Loading transactions…
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="page-section" id="review">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Human control</p>
+            <h2>Classification review</h2>
+          </div>
+          <label class="reviewer-field">
+            Reviewer
+            <input
+              id="reviewer-id"
+              value="shishir"
+              maxlength="100"
+            >
+          </label>
+        </div>
+
+        <article class="panel">
+          <div class="review-list" id="review-list">
+            <div class="empty-state">
+              Loading review queue…
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="page-section" id="profit-loss">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Internal reporting</p>
+            <h2>Cash-basis Profit &amp; Loss</h2>
+          </div>
+          <div class="period-controls">
+            <input
+              id="pnl-start"
+              type="date"
+              value="2026-04-01"
+            >
+            <span>to</span>
+            <input
+              id="pnl-end"
+              type="date"
+              value="2026-06-30"
+            >
+            <button
+              class="button secondary"
+              id="load-pnl-button"
+              type="button"
+            >
+              Load report
+            </button>
+          </div>
+        </div>
+
+        <div class="period-tabs" id="pnl-tabs"></div>
+        <div id="pnl-report">
+          <article class="panel">
+            Loading Profit &amp; Loss…
+          </article>
+        </div>
+      </section>
+
+      <section class="page-section" id="quickbooks">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">External ledger</p>
+            <h2>QuickBooks Online</h2>
+          </div>
+          <a
+            class="button secondary"
+            href="/api/v1/quickbooks/connect"
+          >
+            Connect sandbox
+          </a>
+        </div>
+
+        <div class="two-column">
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Connection</p>
+                <h3>Sandbox status</h3>
+              </div>
+              <span class="status-pill" id="qbo-connection">
+                Loading
+              </span>
+            </div>
+
+            <div class="definition-list">
+              <div>
+                <span>Environment</span>
+                <strong>Sandbox</strong>
+              </div>
+              <div>
+                <span>Posting method</span>
+                <strong>Balanced JournalEntries</strong>
+              </div>
+              <div>
+                <span>Duplicate prevention</span>
+                <strong>Deterministic request IDs</strong>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Synchronization</p>
+                <h3>Post approved transactions</h3>
+              </div>
+            </div>
+
+            <p class="muted">
+              The sync is idempotent. Previously succeeded records
+              are reused and are not posted again.
+            </p>
+
+            <label>
+              Confirmation phrase
+              <input
+                id="sync-confirmation"
+                placeholder="BRIGHTFIX-SANDBOX-LIVE-SYNC"
+                autocomplete="off"
+              >
+            </label>
+
+            <button
+              class="button primary"
+              id="sync-button"
+              type="button"
+            >
+              Run guarded sync
+            </button>
+          </article>
+        </div>
+
+        <pre
+          class="result-box"
+          id="sync-output"
+        >No sync run in this browser session.</pre>
+      </section>
+
+      <section class="page-section" id="reconciliation">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Accounting validation</p>
+            <h2>QuickBooks reconciliation</h2>
+          </div>
+          <button
+            class="button primary"
+            id="reconcile-button"
+            type="button"
+          >
+            Run live reconciliation
+          </button>
+        </div>
+
+        <div class="reconciliation-summary">
+          <article>
+            <span>Revenue</span>
+            <strong>$300,275.00</strong>
+          </article>
+          <article>
+            <span>COGS</span>
+            <strong>$93,850.00</strong>
+          </article>
+          <article>
+            <span>Operating expenses</span>
+            <strong>$138,245.00</strong>
+          </article>
+          <article>
+            <span>Net profit</span>
+            <strong>$68,180.00</strong>
+          </article>
+        </div>
+
+        <article class="panel reconciliation-card">
+          <div class="reconcile-icon">✓</div>
+          <div>
+            <p class="eyebrow">Last validated acceptance</p>
+            <h3>All four periods reconciled</h3>
+            <p>
+              April, May, June, and the consolidated quarter
+              matched every controlled account at a $0.00 difference.
+            </p>
+          </div>
+        </article>
+
+        <pre
+          class="result-box"
+          id="reconciliation-output"
+        >Run the read-only reconciliation to refresh live evidence.</pre>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="correction-dialog">
+    <form method="dialog" id="correction-form">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">Manual correction</p>
+          <h3>Correct classification</h3>
+        </div>
+        <button
+          type="button"
+          class="icon-button"
+          id="close-correction"
+          aria-label="Close"
+        >
+          ×
+        </button>
+      </div>
+
+      <input type="hidden" id="correction-id">
+      <input type="hidden" id="correction-version">
+
+      <label>
+        Transaction type
+        <select id="correction-type" required>
+          <option value="revenue">Revenue</option>
+          <option value="refund">Refund</option>
+          <option value="cost_of_goods_sold">
+            Cost of Goods Sold
+          </option>
+          <option value="operating_expense">
+            Operating Expense
+          </option>
+          <option value="transfer">Transfer</option>
+          <option value="owner_contribution">
+            Owner Contribution
+          </option>
+          <option value="owner_draw">Owner Draw</option>
+          <option value="fixed_asset_purchase">
+            Fixed-Asset Purchase
+          </option>
+        </select>
+      </label>
+
+      <label>
+        QuickBooks account
+        <select id="correction-account" required>
+          {% for account in accounts %}
+          <option value="{{ account.number }}">
+            {{ account.number }} — {{ account.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>
+        Counterparty
+        <input
+          id="correction-counterparty"
+          maxlength="200"
+        >
+      </label>
+
+      <label>
+        Correction reason
+        <textarea
+          id="correction-reason"
+          required
+          maxlength="500"
+        >Reviewed against the source transaction.</textarea>
+      </label>
+
+      <div class="button-row right">
+        <button
+          type="button"
+          class="button secondary"
+          id="cancel-correction"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          class="button primary"
+        >
+          Save correction
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
