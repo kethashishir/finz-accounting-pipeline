@@ -23,12 +23,12 @@ from app.models.ingestion import (
     RecordStatus,
     TransactionDirection,
 )
+from app.models.profit_and_loss import ProfitAndLossSource
 from app.services.accounting.chart_of_accounts import (
     load_chart_of_accounts,
 )
 from app.services.reporting.profit_and_loss import (
     ProfitAndLossBuildError,
-    ProfitAndLossSource,
     build_profit_and_loss_report_set,
 )
 

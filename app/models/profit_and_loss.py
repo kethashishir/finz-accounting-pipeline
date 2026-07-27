@@ -14,8 +14,10 @@ from app.models.accounting import QBOAccountType
 from app.models.classification import (
     ImmutableAccountingModel,
     NonEmptyString,
+    TransactionClassification,
     TransactionType,
 )
+from app.models.ingestion import NormalizedTransaction
 
 Money = Annotated[
     Decimal,
@@ -58,6 +60,13 @@ EXPECTED_TRANSACTION_TYPES_BY_ACCOUNT_TYPE = {
         }
     ),
 }
+
+
+class ProfitAndLossSource(ImmutableAccountingModel):
+    """Stored transaction and classification evidence for reporting."""
+
+    transaction: NormalizedTransaction
+    classification: TransactionClassification
 
 
 class ProfitAndLossTransaction(ImmutableAccountingModel):

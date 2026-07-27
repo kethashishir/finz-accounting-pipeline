@@ -16,17 +16,16 @@ from app.models.accounting import (
 )
 from app.models.classification import (
     ReviewStatus,
-    TransactionClassification,
     TransactionType,
 )
 from app.models.ingestion import (
-    NormalizedTransaction,
     RecordStatus,
 )
 from app.models.profit_and_loss import (
     ZERO,
     ProfitAndLossAccountLine,
     ProfitAndLossReportSet,
+    ProfitAndLossSource,
     ProfitAndLossStatement,
     ProfitAndLossTransaction,
 )
@@ -38,14 +37,6 @@ from app.services.classification.account_mapping import (
 
 class ProfitAndLossBuildError(ValueError):
     """Stored accounting evidence cannot safely produce a P&L."""
-
-
-@dataclass(frozen=True, slots=True)
-class ProfitAndLossSource:
-    """One normalized transaction and its current classification."""
-
-    transaction: NormalizedTransaction
-    classification: TransactionClassification
 
 
 @dataclass(frozen=True, slots=True)
